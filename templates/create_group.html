@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Создать группу — СвяZь{% endblock %}
+{% block content %}
+<div style="max-width:560px;margin:0 auto">
+<div class="card">
+    <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Создать групповой чат</div>
+    <div class="card-body">
+        <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label class="form-label">Название группы *</label>
+                <input type="text" name="name" class="form-control" placeholder="Моя группа" required maxlength="100">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Аватар группы</label>
+                <input type="file" name="avatar" class="form-control" accept="image/*">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Добавить участников</label>
+                <input type="text" id="memberSearch" class="form-control" placeholder="Поиск по имени пользователя...">
+                <div id="memberResults" style="margin-top:0.5rem;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-xs);display:none"></div>
+                <div id="selectedMembers" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem"></div>
+            </div>
+            <div style="display:flex;gap:0.75rem">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Создать группу
+                </button>
+                <a href="{{ url_for('chats') }}" class="btn btn-secondary">Отмена</a>
+            </div>
+        </form>
+    </div>
+</div>
+</div>
+
+<script>
+const selected = new Set();
+
+document.getElementById('memberSearch').addEventListener('input', async function() {
+    const q = this.value.trim();
+    const results = document.getElementById('memberResults');
+    if (q.length < 1) { results.style.display = 'none'; return; }
+    const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+    const users = await res.json();
+    results.style.display = 'block';
+    results.innerHTML = users.filter(u => !selected.has(u.username)).map(u => `
+        <div class="search-user-item" onclick="addMember('${u.username}', '${u.avatar}')" style="cursor:pointer;padding:0.6rem 0.75rem">
+            <img src="${u.avatar}" class="avatar avatar-sm">
+            <span style="font-weight:600;font-size:0.9rem">${u.username}</span>
+        </div>
+    `).join('') || '<div style="padding:0.75rem;color:var(--text3);font-size:0.88rem;text-align:center">Не найдено</div>';
+});
+
+function addMember(username, avatar) {
+    if (selected.has(username)) return;
+    selected.add(username);
+    document.getElementById('memberResults').style.display = 'none';
+    document.getElementById('memberSearch').value = '';
+
+    const chip = document.createElement('div');
+    chip.style.cssText = 'display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0.65rem;background:var(--border);border-radius:50px;font-size:0.85rem';
+    chip.innerHTML = `<img src="${avatar}" class="avatar avatar-xs"><span>${username}</span><button type="button" onclick="removeMember('${username}', this.parentElement)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:0.9rem;padding:0;line-height:1">×</button>`;
+
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden'; hidden.name = 'participants'; hidden.value = username; hidden.id = `hidden-${username}`;
+    chip.appendChild(hidden);
+
+    document.getElementById('selectedMembers').appendChild(chip);
+}
+
+function removeMember(username, el) {
+    selected.delete(username);
+    el.remove();
+}
+</script>
+{% endblock %}

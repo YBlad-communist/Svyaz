@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+{% from 'macros.html' import user_avatar %}
+{% block title %}{{ profile_user.username }} — СвяZь{% endblock %}
+{% block content %}
+<div class="layout-grid-2col">
+<div>
+
+<!-- Profile hero -->
+<div class="card" style="margin-bottom:1rem;overflow:hidden">
+    <div class="profile-hero"
+        {% if profile_user.is_premium_active() and profile_user.customization %}
+            {% if profile_user.customization.profile_background_type == 'gradient' and profile_user.customization.profile_background_gradient %}
+                {% set raw_grad = profile_user.customization.profile_background_gradient.replace('||shimmer','') %}
+                style="background:{{ raw_grad }};{% if '||shimmer' in profile_user.customization.profile_background_gradient %}background-size:300% 300%;animation:gradShimmer 5s ease infinite;{% endif %}"
+            {% endif %}
+        {% endif %}>
+        {% if profile_user.is_premium_active() and profile_user.customization and profile_user.customization.profile_background_type == 'image' and profile_user.customization.profile_background_url %}
+        <div class="profile-hero-bg" style="background-image:url('{{ profile_user.customization.profile_background_url }}');opacity:0.5"></div>
+        <div class="profile-hero-gradient"></div>
+        {% endif %}
+        <div class="profile-hero-content">
+            <div class="profile-avatar-wrap">
+                {{ user_avatar(profile_user, "xl") }}
+            </div>
+            <div class="profile-info">
+                <div class="profile-username">
+                    {{ profile_user.username }}
+                    {% if profile_user.verified %}<i class="fas fa-check-circle" style="color:#60a5fa;font-size:0.8em"></i>{% endif %}
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.4rem">
+                    {% if profile_user.is_premium_active() %}
+                    <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.2rem 0.55rem;border-radius:50px;font-size:0.72rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white"><i class="fas fa-star"></i> Подписка</span>
+                    {% endif %}
+                    {% if profile_user.role == 'admin' %}<span class="role-badge role-admin">Admin</span>{% endif %}
+                    {% if profile_user.role == 'moderator' %}<span class="role-badge role-moderator">Moderator</span>{% endif %}
+                    {% if profile_user.role == 'betatester' %}<span class="role-badge role-betatester">Beta</span>{% endif %}
+                </div>
+                {% if profile_user.is_premium_active() and profile_user.customization and profile_user.customization.status_text %}
+                <div style="margin-top:0.5rem">
+                    <span class="user-status">
+                        {% if profile_user.customization.status_emoji %}{{ profile_user.customization.status_emoji }}{% endif %}
+                        {{ profile_user.customization.status_text }}
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+            {% if current_user.id == profile_user.id %}
+            <a href="#" onclick="document.getElementById('editModal').style.display='flex';return false" class="btn btn-secondary btn-sm" style="background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.4);color:white">
+                <i class="fas fa-edit"></i> Редактировать
+            </a>
+            {% else %}
+            <button onclick="followUser('{{ profile_user.username }}')" class="btn btn-sm {% if is_following %}btn-secondary{% else %}btn-primary{% endif %}" id="followBtn">
+                {% if is_following %}<i class="fas fa-user-check"></i> Подписан{% else %}<i class="fas fa-user-plus"></i> Подписаться{% endif %}
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="profile-stats">
+        <div class="profile-stat">
+            <div class="profile-stat-num">{{ profile_user.posts.count() }}</div>
+            <div class="profile-stat-label">Постов</div>
+        </div>
+        <div class="profile-stat">
+            <div class="profile-stat-num">{{ profile_user.followers.count() }}</div>
+            <div class="profile-stat-label">Подписчиков</div>
+        </div>
+        <div class="profile-stat">
+            <div class="profile-stat-num">{{ profile_user.following.count() }}</div>
+            <div class="profile-stat-label">Подписок</div>
+        </div>
+    </div>
+
+    {% if profile_user.bio or profile_user.location or profile_user.website %}
+    <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border)">
+        {% if profile_user.bio %}<p style="color:var(--text);margin-bottom:0.5rem">{{ profile_user.bio }}</p>{% endif %}
+        <div style="display:flex;gap:1.25rem;flex-wrap:wrap">
+            {% if profile_user.location %}<span style="color:var(--text3);font-size:0.85rem"><i class="fas fa-map-marker-alt" style="color:var(--primary)"></i> {{ profile_user.location }}</span>{% endif %}
+            {% if profile_user.website %}<a href="{{ profile_user.website }}" target="_blank" style="color:var(--primary);font-size:0.85rem"><i class="fas fa-link"></i> {{ profile_user.website }}</a>{% endif %}
+            <span style="color:var(--text3);font-size:0.85rem"><i class="fas fa-calendar" style="color:var(--primary)"></i> с {{ profile_user.created_at.strftime('%B %Y') }}</span>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if current_user.id == profile_user.id %}
+    <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;flex-wrap:wrap">
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+            <i class="fas fa-camera"></i> Сменить аватар
+            <form method="POST" action="{{ url_for('upload_avatar') }}" enctype="multipart/form-data" id="avatarForm" style="display:none">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="file" name="avatar" accept="image/*" onchange="document.getElementById('avatarForm').submit()">
+            </form>
+        </label>
+        {% if not profile_user.is_subscribed() %}
+        <a href="{{ url_for('premium_page') }}" class="btn btn-primary btn-sm"><i class="fas fa-star"></i> Подписка</a>
+        {% endif %}
+        {% if profile_user.is_subscribed() %}
+        <button onclick="document.getElementById('customizeModal').style.display='flex'" class="btn btn-secondary btn-sm">
+            <i class="fas fa-palette"></i> Кастомизация
+        </button>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Pinned post -->
+{% if pinned_post %}
+<div class="post-card" style="border:2px solid var(--primary);margin-bottom:1rem">
+    <div class="post-pinned-indicator"><i class="fas fa-thumbtack"></i> Закреплённый пост</div>
+    <div class="post-header">
+        {{ user_avatar(profile_user, "md") }}
+        <div class="post-user-info">
+            <span class="post-username">{{ profile_user.username }}</span>
+            <div class="post-time">{{ pinned_post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
+        </div>
+    </div>
+    <div class="post-content">{{ pinned_post.content }}</div>
+    {% if pinned_post.media_url and pinned_post.media_type == 'image' %}
+    <img src="{{ pinned_post.media_url }}" class="post-media" onclick="openImage('{{ pinned_post.media_url }}')" style="cursor:zoom-in">
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Posts -->
+{% for post in posts.items %}
+{% if not post.is_pinned %}
+<div class="post-card" id="post-{{ post.id }}">
+    <div class="post-header">
+        {{ user_avatar(post.author, "md") }}
+        <div class="post-user-info">
+            <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">{{ post.author.username }}</a>
+            <div class="post-time">{{ post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
+        </div>
+        {% if current_user.can_delete_post(post) %}
+        <button class="btn btn-ghost btn-icon" onclick="deletePost({{ post.id }})"><i class="fas fa-trash" style="color:var(--text3)"></i></button>
+        {% endif %}
+    </div>
+    <div class="post-content" data-linkify="true">{{ post.content }}</div>
+    {% if post.media_url %}
+        {% if post.media_type == 'image' %}
+        <img src="{{ post.media_url }}" class="post-media" onclick="openImage('{{ post.media_url }}')" style="cursor:zoom-in">
+        {% elif post.media_type == 'video' %}
+        <video class="post-video" controls preload="metadata"><source src="{{ post.media_url }}"></video>
+        {% endif %}
+    {% endif %}
+    <div class="post-actions">
+        <button class="post-action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}" onclick="likePost({{ post.id }}, this)">
+            <i class="fas fa-heart"></i> <span class="like-count">{{ post.like_count }}</span>
+        </button>
+        <a href="{{ url_for('view_post', post_id=post.id) }}" class="post-action-btn">
+            <i class="fas fa-comment"></i> {{ post.comment_count }}
+        </a>
+        <button class="post-action-btn" onclick="sharePost('{{ request.host_url }}post/{{ post.id }}')">
+            <i class="fas fa-share-alt"></i>
+        </button>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+{% if not posts.items %}
+<div class="card" style="text-align:center;padding:2.5rem;color:var(--text3)">
+    <div style="font-size:2.5rem;margin-bottom:0.75rem">✍️</div>
+    <div>Постов пока нет</div>
+</div>
+{% endif %}
+
+</div><!-- end main col -->
+
+<!-- Right sidebar -->
+<div class="sticky-col">
+    {% if current_user.id != profile_user.id %}
+    <div class="sidebar-card">
+        <div class="card-body" style="display:flex;flex-direction:column;gap:0.6rem">
+            <button onclick="followUser('{{ profile_user.username }}')" class="btn {% if is_following %}btn-secondary{% else %}btn-primary{% endif %} w-100" id="followBtn2">
+                {% if is_following %}<i class="fas fa-user-check"></i> Подписан{% else %}<i class="fas fa-user-plus"></i> Подписаться{% endif %}
+            </button>
+            <button onclick="startChat('{{ profile_user.username }}')" class="btn btn-secondary w-100">
+                <i class="fas fa-comment"></i> Написать
+            </button>
+            {% if current_user.role in ('admin', 'moderator') %}
+            <button onclick="blockUser({{ profile_user.id }})" class="btn btn-danger w-100 btn-sm">
+                <i class="fas fa-ban"></i> Заблокировать
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    <div class="sidebar-card">
+        <div class="sidebar-card-header"><i class="fas fa-info-circle"></i> О пользователе</div>
+        <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.5rem">
+            <div style="font-size:0.85rem;color:var(--text2)">
+                <i class="fas fa-calendar" style="color:var(--primary);width:16px"></i>
+                Зарегистрирован {{ profile_user.created_at.strftime('%d.%m.%Y') }}
+            </div>
+            {% if profile_user.location %}
+            <div style="font-size:0.85rem;color:var(--text2)">
+                <i class="fas fa-map-marker-alt" style="color:var(--primary);width:16px"></i> {{ profile_user.location }}
+            </div>
+            {% endif %}
+            {% if profile_user.website %}
+            <div style="font-size:0.85rem">
+                <i class="fas fa-link" style="color:var(--primary);width:16px"></i>
+                <a href="{{ profile_user.website }}" style="color:var(--primary)">{{ profile_user.website }}</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+</div><!-- end grid -->
+
+<!-- ===== Edit Modal ===== -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+    <div style="background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:2rem;width:90%;max-width:480px;max-height:90vh;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+            <h3 style="font-weight:700;color:var(--text)">Редактировать профиль</h3>
+            <button onclick="document.getElementById('editModal').style.display='none'" class="btn btn-ghost btn-icon"><i class="fas fa-times"></i></button>
+        </div>
+        <form method="POST" action="{{ url_for('update_profile') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label class="form-label">О себе</label>
+                <textarea name="bio" class="form-control" placeholder="Расскажи о себе...">{{ current_user.bio }}</textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Местоположение</label>
+                <input type="text" name="location" class="form-control" value="{{ current_user.location }}" placeholder="Город, страна">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Веб-сайт</label>
+                <input type="url" name="website" class="form-control" value="{{ current_user.website }}" placeholder="https://...">
+            </div>
+            {% if current_user.is_premium_active() %}
+            <div style="padding:1rem;background:rgba(245,158,11,0.08);border-radius:var(--radius-sm);border:1px solid rgba(245,158,11,0.2);margin-bottom:1rem">
+                <div style="font-size:0.85rem;font-weight:700;color:#f59e0b;margin-bottom:0.75rem"><i class="fas fa-crown"></i> Premium: Статус</div>
+                <div class="form-group">
+                    <label class="form-label">Эмодзи статуса</label>
+                    <input type="text" name="status_emoji" class="form-control"
+                        value="{{ current_user.customization.status_emoji if current_user.customization else '' }}"
+                        placeholder="🎯" maxlength="10">
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                    <label class="form-label">Текст статуса</label>
+                    <input type="text" name="status_text" class="form-control"
+                        value="{{ current_user.customization.status_text if current_user.customization else '' }}"
+                        placeholder="Чем сейчас занимаешься?" maxlength="80">
+                </div>
+            </div>
+            {% endif %}
+            <div style="display:flex;gap:0.75rem">
+                <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-save"></i> Сохранить</button>
+                <button type="button" onclick="document.getElementById('editModal').style.display='none'" class="btn btn-secondary">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ===== Premium Customization Modal (обновлён с выбором рамки) ===== -->
+{% if current_user.is_premium_active() and current_user.id == profile_user.id %}
+
+{% set saved_bg_grad = current_user.customization.profile_background_gradient if current_user.customization else '' %}
+{% set saved_bg_type = current_user.customization.profile_background_type if current_user.customization else 'none' %}
+{% set saved_post_style = current_user.customization.post_style if current_user.customization else 'default' %}
+{% set saved_msg_style = current_user.customization.message_style if current_user.customization else 'default' %}
+{% set saved_avatar_style = current_user.customization.avatar_border_style if current_user.customization else 'none' %}
+{% set saved_chat_theme = current_user.customization.chat_theme if current_user.customization else 'default' %}
+{% set saved_font = current_user.customization.font_style if current_user.customization else 'default' %}
+{% set saved_frame_key = current_user.customization.avatar_frame_key if current_user.customization else 'premium_ring' %}
+
+<div id="customizeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
+    <div style="background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:2rem;width:90%;max-width:500px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+            <h3 style="font-weight:700;color:var(--text)"><i class="fas fa-crown" style="color:#f59e0b"></i> Premium Кастомизация</h3>
+            <button onclick="document.getElementById('customizeModal').style.display='none'" class="btn btn-ghost btn-icon"><i class="fas fa-times"></i></button>
+        </div>
+
+        <form method="POST" action="{{ url_for('save_customization') }}" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+            <!-- Рамка аватара -->
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-image"></i> Рамка аватара</label>
+                <!-- Превью текущей рамки -->
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;padding:0.75rem;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+                    <div style="position:relative;width:48px;height:48px;flex-shrink:0">
+                        <img src="{{ current_user.avatar }}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">
+                        <img src="/static/frames/{{ saved_frame_key }}.svg" alt="" style="position:absolute;inset:-12%;width:124%;height:124%;pointer-events:none;z-index:2">
+                    </div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:0.85rem;font-weight:600;color:var(--text)" id="currentFrameName">Текущая рамка</div>
+                        <div style="font-size:0.75rem;color:var(--text3)">Купи новые в маркете</div>
+                    </div>
+                    <a href="{{ url_for('market') }}" class="btn btn-primary btn-sm">🎭 Маркет</a>
+                </div>
+                <!-- Выбор из купленных рамок -->
+                <select name="avatar_frame_key" class="form-control" id="frameSelect">
+                    <!-- Базовая рамка (для всех premium) -->
+                    <option value="premium_gold" {% if saved_frame_key == 'premium_gold' %}selected{% endif %}>👑 Золотая (бесплатно)</option>
+                    <!-- Купленные рамки -->
+                    {% for uf in current_user.frames.all() %}
+                    {% if uf.frame_key != 'premium_gold' %}
+                    <option value="{{ uf.frame_key }}" {% if saved_frame_key == uf.frame_key %}selected{% endif %}>
+                        {{ uf.frame_key }}
+                    </option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Фон профиля – картинка -->
+            <div style="margin-bottom:1.25rem">
+                <div style="font-size:0.82rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:0.65rem">
+                    <i class="fas fa-image" style="color:var(--primary)"></i> Фон профиля
+                </div>
+                {% if current_user.customization and current_user.customization.profile_background_url %}
+                <div style="margin-bottom:0.75rem;border-radius:var(--radius-sm);overflow:hidden;height:80px;position:relative">
+                    <img src="{{ current_user.customization.profile_background_url }}" style="width:100%;height:100%;object-fit:cover">
+                    <div style="position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.4),transparent);display:flex;align-items:center;padding:0.75rem">
+                        <span style="color:white;font-size:0.8rem;font-weight:600">Текущий фон</span>
+                    </div>
+                </div>
+                {% endif %}
+                <input type="file" name="profile_background" class="form-control" accept="image/jpeg,image/png,image/webp,image/gif">
+                <div style="font-size:0.75rem;color:var(--text3);margin-top:0.35rem">JPG, PNG, WEBP, GIF — до 50 МБ</div>
+            </div>
+
+            <div style="display:flex;gap:0.75rem;margin-top:1rem">
+                <button type="submit" class="btn btn-premium" style="flex:1">
+                    <i class="fas fa-save"></i> Сохранить настройки
+                </button>
+                {% if current_user.customization and current_user.customization.profile_background_url %}
+                <button type="button" onclick="removeBg()" class="btn btn-secondary btn-sm">
+                    <i class="fas fa-trash"></i> Убрать фон
+                </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function removeBg() {
+    if (!confirm('Убрать фоновое изображение?')) return;
+    const fd = new FormData();
+    fd.append('_csrf_token', CSRF);
+    fd.append('profile_background_type', 'none');
+    const res = await fetch('{{ url_for("save_customization") }}', {
+        method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd
+    });
+    location.reload();
+}
+</script>
+
+{% endif %}<!-- end premium block -->
+
+<!-- ===== Page JS ===== -->
+<script>
+// Linkify hashtags in posts
+document.querySelectorAll('.post-content').forEach(el => {
+    el.innerHTML = el.innerHTML.replace(/#([a-zA-Z0-9_\u0400-\u04FF]+)/g,
+        '<a href="/hashtag/$1" style="color:var(--primary);font-weight:600;text-decoration:none">#$1</a>');
+});
+
+async function followUser(username) {
+    var res = await api('/user/'+username+'/follow');
+    if (!res) return;
+    ['followBtn','followBtn2'].forEach(function(id) {
+        var btn = document.getElementById(id);
+        if (!btn) return;
+        if (res.following) {
+            btn.className = 'btn btn-secondary w-100';
+            btn.innerHTML = '<i class="fas fa-user-check"></i> Подписан';
+        } else {
+            btn.className = 'btn btn-primary w-100';
+            btn.innerHTML = '<i class="fas fa-user-plus"></i> Подписаться';
+        }
+    });
+}
+
+async function startChat(username) {
+    var res = await fetch('/api/chat/create', {
+        method:'POST',
+        headers:{'X-CSRFToken':CSRF,'Content-Type':'application/x-www-form-urlencoded'},
+        body:'username='+encodeURIComponent(username)+'&_csrf_token='+CSRF
+    });
+    var data = await res.json();
+    if (data.chat_id) window.location.href='/chats?chat='+data.chat_id;
+}
+
+async function likePost(postId, btn) {
+    var res = await api('/post/'+postId+'/like');
+    if (!res) return;
+    btn.classList.toggle('liked', res.liked);
+    btn.querySelector('.like-count').textContent = res.count;
+    btn.style.transform='scale(1.2)';
+    setTimeout(function(){btn.style.transform='';},180);
+}
+
+function sharePost(url) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(function() {
+            var t=document.createElement('div');
+            t.className='alert alert-success';
+            t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;min-width:220px;text-align:center;box-shadow:var(--shadow-lg)';
+            t.innerHTML='<i class="fas fa-check"></i> Ссылка скопирована!';
+            document.body.appendChild(t);
+            setTimeout(function(){t.remove();},2500);
+        });
+    }
+}
+
+async function deletePost(postId) {
+    if (!confirm('Удалить этот пост?')) return;
+    var res = await api('/post/'+postId+'/delete','DELETE');
+    if (res && res.success) {
+        var el=document.getElementById('post-'+postId);
+        if(el){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){el.remove();},300);}
+    }
+}
+
+async function blockUser(userId) {
+    if (!confirm('Заблокировать пользователя?')) return;
+    var res = await api('/admin/block_user/'+userId);
+    if (res && res.success) location.reload();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 110" width="110" height="110">
+  <defs>
+    <linearGradient id="dg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="25%" stop-color="#7dd3fc"/>
+      <stop offset="50%" stop-color="#e0f2fe"/>
+      <stop offset="75%" stop-color="#bae6fd"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <linearGradient id="dg2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.9)"/>
+      <stop offset="100%" stop-color="rgba(14,165,233,0.3)"/>
+    </linearGradient>
+    <mask id="dm"><circle cx="55" cy="55" r="53" fill="white"/><circle cx="55" cy="55" r="44" fill="black"/></mask>
+  </defs>
+  <circle cx="55" cy="55" r="53" fill="url(#dg)" mask="url(#dm)"/>
+  <!-- Diamond facet lines -->
+  <g mask="url(#dm)" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" fill="none">
+    <line x1="55" y1="2" x2="108" y2="55"><animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite"/></line>
+    <line x1="108" y1="55" x2="55" y2="108"/>
+    <line x1="55" y1="108" x2="2" y2="55"/>
+    <line x1="2" y1="55" x2="55" y2="2"/>
+    <line x1="55" y1="2" x2="55" y2="108" stroke-dasharray="4 4" opacity="0.4"/>
+    <line x1="2" y1="55" x2="108" y2="55" stroke-dasharray="4 4" opacity="0.4"/>
+  </g>
+  <!-- Sparkle highlights -->
+  <g mask="url(#dm)" fill="white">
+    <ellipse cx="55" cy="6" rx="5" ry="2" opacity="0.9">
+      <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.5s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="104" cy="55" rx="2" ry="5" opacity="0.8">
+      <animate attributeName="opacity" values="0.4;0.9;0.4" dur="1.8s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="6" cy="55" rx="2" ry="5" opacity="0.8">
+      <animate attributeName="opacity" values="0.9;0.3;0.9" dur="2.1s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="55" cy="104" rx="5" ry="2" opacity="0.9">
+      <animate attributeName="opacity" values="0.5;1;0.5" dur="1.6s" repeatCount="indefinite"/>
+    </ellipse>
+  </g>
+  <!-- Rotating shine -->
+  <ellipse cx="35" cy="20" rx="22" ry="6" fill="url(#dg2)" mask="url(#dm)">
+    <animateTransform attributeName="transform" type="rotate" from="0 55 55" to="360 55 55" dur="5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;1;0.6" dur="5s" repeatCount="indefinite"/>
+  </ellipse>
+</svg>

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% from 'macros.html' import user_avatar %}
+{% block title %}Пост — СвяZь{% endblock %}
+{% block content %}
+<div style="max-width:680px;margin:0 auto">
+    <div class="post-card">
+        {% if post.is_pinned %}
+        <div class="post-pinned-indicator"><i class="fas fa-thumbtack"></i> Закреплённый пост</div>
+        {% endif %}
+        <div class="post-header">
+            {{ user_avatar(post.author, "md") }}
+            <div class="post-user-info">
+                <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">
+                    {{ post.author.username }}
+                    {% if post.author.verified %}<i class="fas fa-check-circle verified-check"></i>{% endif %}
+                    {% if post.author.is_premium_active() %}<span class="premium-badge" style="font-size:0.65rem;padding:0.1rem 0.4rem"><i class="fas fa-crown"></i></span>{% endif %}
+                </a>
+                <div class="post-time">{{ post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
+            </div>
+            {% if current_user.can_delete_post(post) %}
+            <button onclick="deletePost({{ post.id }})" class="btn btn-danger btn-sm">
+                <i class="fas fa-trash"></i>
+            </button>
+            {% endif %}
+        </div>
+        <div class="post-content">{{ post.content }}</div>
+        {% if post.media_url %}
+        {% if post.media_type == 'image' %}
+        <img src="{{ post.media_url }}" class="post-media" onclick="openImage('{{ post.media_url }}')" style="cursor:zoom-in">
+        {% elif post.media_type == 'video' %}
+        <video class="post-video" controls><source src="{{ post.media_url }}"></video>
+        {% endif %}
+        {% endif %}
+        <div class="post-actions">
+            <button class="post-action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}" onclick="likePost({{ post.id }}, this)">
+                <i class="fas fa-heart"></i> <span class="like-count">{{ post.like_count }}</span>
+            </button>
+            <span class="post-action-btn" style="cursor:default"><i class="fas fa-comment"></i> {{ comments|length }}</span>
+        </div>
+    </div>
+
+    <!-- Add comment -->
+    <div class="compose-box">
+        <form onsubmit="submitComment(event, {{ post.id }})">
+            <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                <img src="{{ current_user.avatar }}" class="avatar avatar-sm" style="margin-top:0.3rem">
+                <textarea class="compose-input" id="commentText" placeholder="Оставь комментарий..." style="min-height:60px"></textarea>
+            </div>
+            <div class="compose-footer">
+                <button type="submit" class="btn btn-primary btn-sm" style="margin-left:auto">
+                    <i class="fas fa-paper-plane"></i> Отправить
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Comments -->
+    <div id="commentsContainer">
+    {% for comment in comments %}
+    <div class="comment" style="background:var(--surface);border-radius:var(--radius-sm);margin-bottom:0.5rem;padding:0.85rem 1rem">
+        {{ user_avatar(comment.author, "sm") }}
+        <div class="comment-content">
+            <a href="{{ url_for('profile', username=comment.author.username) }}" class="comment-username">{{ comment.author.username }}</a>
+            <div class="comment-text">{{ comment.content }}</div>
+            <div class="comment-time">{{ comment.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
+        </div>
+    </div>
+    {% else %}
+    <div id="noComments" style="text-align:center;padding:2rem;color:var(--text3)">
+        <div style="font-size:2rem;margin-bottom:0.5rem">💬</div>
+        <div>Комментариев пока нет. Будь первым!</div>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+
+<script>
+async function likePost(postId, btn) {
+    const res = await api(`/post/${postId}/like`);
+    if (!res) return;
+    btn.classList.toggle('liked', res.liked);
+    btn.querySelector('.like-count').textContent = res.count;
+}
+
+async function deletePost(postId) {
+    if (!confirm('Удалить этот пост?')) return;
+    const res = await api(`/post/${postId}/delete`, 'DELETE');
+    if (res?.success) window.location.href = '{{ url_for("feed") }}';
+}
+
+async function submitComment(e, postId) {
+    e.preventDefault();
+    const ta = document.getElementById('commentText');
+    const content = ta.value.trim();
+    if (!content) return;
+    const res = await fetch(`/post/${postId}/comment`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `content=${encodeURIComponent(content)}&_csrf_token=${CSRF}`
+    });
+    const data = await res.json();
+    if (data.success) {
+        ta.value = '';
+        const c = data.comment;
+        document.getElementById('noComments')?.remove();
+        const div = document.createElement('div');
+        div.className = 'comment';
+        div.style.cssText = 'background:var(--surface);border-radius:var(--radius-sm);margin-bottom:0.5rem;padding:0.85rem 1rem';
+        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${c.username}</a><div class="comment-text">${c.content}</div><div class="comment-time">только что</div></div>`;
+        document.getElementById('commentsContainer').appendChild(div);
+    }
+}
+
+// Linkify hashtags
+document.querySelectorAll('.post-content').forEach(el => {
+    el.innerHTML = el.innerHTML.replace(/#([a-zA-Z0-9_\u0400-\u04FF]+)/g,
+        '<a href="/hashtag/$1" style="color:var(--primary);font-weight:600;text-decoration:none">#$1</a>');
+});
+</script>
+{% endblock %}

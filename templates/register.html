@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Регистрация — СвяZь{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+    <div class="auth-card">
+        <div class="auth-logo">
+            <div class="auth-logo-text"><i class="fas fa-link"></i> СвяZь</div>
+        </div>
+        <h2 class="auth-title">Создай аккаунт</h2>
+        <p class="auth-sub">Присоединяйся к сообществу СвяZь</p>
+        <form method="POST">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label class="form-label">Имя пользователя</label>
+                <input type="text" name="username" class="form-control" placeholder="cool_username" required minlength="3" maxlength="32" autocomplete="username">
+                <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">От 3 до 32 символов</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="email" name="email" class="form-control" placeholder="you@example.com" required autocomplete="email">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Пароль</label>
+                <div style="position:relative">
+                    <input type="password" name="password" id="pwdInput" class="form-control" placeholder="Минимум 6 символов" required minlength="6" autocomplete="new-password">
+                    <button type="button" onclick="togglePwd()" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer">
+                        <i class="fas fa-eye" id="pwdEye"></i>
+                    </button>
+                </div>
+                <div id="pwdStrength" style="height:4px;border-radius:2px;margin-top:0.4rem;background:var(--border);overflow:hidden">
+                    <div id="pwdBar" style="height:100%;width:0;border-radius:2px;transition:all 0.3s"></div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary w-100" style="margin-top:0.5rem">
+                <i class="fas fa-user-plus"></i> Зарегистрироваться
+            </button>
+        </form>
+        <div style="text-align:center;margin-top:1.25rem;font-size:0.9rem;color:var(--text2)">
+            Уже есть аккаунт? <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">Войти</a>
+        </div>
+    </div>
+</div>
+<script>
+function togglePwd() {
+    const i = document.getElementById('pwdInput');
+    const e = document.getElementById('pwdEye');
+    if (i.type === 'password') { i.type = 'text'; e.className = 'fas fa-eye-slash'; }
+    else { i.type = 'password'; e.className = 'fas fa-eye'; }
+}
+document.getElementById('pwdInput').addEventListener('input', function() {
+    const v = this.value;
+    let s = 0;
+    if (v.length >= 6) s++;
+    if (v.length >= 10) s++;
+    if (/[A-Z]/.test(v)) s++;
+    if (/[0-9]/.test(v)) s++;
+    if (/[^A-Za-z0-9]/.test(v)) s++;
+    const colors = ['#ef4444','#f59e0b','#f59e0b','#10b981','#10b981'];
+    const bar = document.getElementById('pwdBar');
+    bar.style.width = (s * 20) + '%';
+    bar.style.background = colors[Math.min(s-1, 4)] || 'transparent';
+});
+</script>
+{% endblock %}

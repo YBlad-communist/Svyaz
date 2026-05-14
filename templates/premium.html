@@ -1,0 +1,480 @@
+{% extends "base.html" %}
+{% block title %}Подписка Pro — СвяZь{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ===== Subscription page ===== */
+.sub-hero {
+    text-align: center;
+    padding: 3.5rem 2rem 3rem;
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    color: white;
+    margin-bottom: 2.5rem;
+}
+.sub-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.4) 0%, transparent 70%);
+    pointer-events: none;
+}
+.sub-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 1rem;
+    border-radius: 50px;
+    background: rgba(99,102,241,0.2);
+    border: 1px solid rgba(99,102,241,0.4);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #a5b4fc;
+    margin-bottom: 1.25rem;
+    position: relative;
+}
+.sub-hero h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 900;
+    margin-bottom: 0.75rem;
+    position: relative;
+    background: linear-gradient(135deg, #e0e7ff, #a5b4fc, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.sub-hero p {
+    font-size: 1.05rem;
+    color: rgba(255,255,255,0.75);
+    max-width: 480px;
+    margin: 0 auto;
+    line-height: 1.6;
+    position: relative;
+}
+.sub-active-banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 1.25rem;
+    background: rgba(16,185,129,0.15);
+    border: 1px solid rgba(16,185,129,0.35);
+    border-radius: 50px;
+    margin-top: 1.25rem;
+    font-size: 0.9rem;
+    color: #6ee7b7;
+    position: relative;
+}
+
+/* Features grid */
+.features-section { margin-bottom: 2.5rem; }
+.features-section-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--text);
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+.features-section-sub {
+    text-align: center;
+    color: var(--text3);
+    font-size: 0.88rem;
+    margin-bottom: 1.5rem;
+}
+
+.feat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+.feat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1.25rem;
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.feat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+}
+.feat-icon {
+    width: 46px; height: 46px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    flex-shrink: 0;
+    background: rgba(99,102,241,0.1);
+}
+.feat-title { font-weight: 700; font-size: 0.95rem; color: var(--text); margin-bottom: 0.2rem; }
+.feat-desc { font-size: 0.82rem; color: var(--text2); line-height: 1.5; }
+
+/* Compare table */
+.compare-table {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 2.5rem;
+}
+.compare-table table { width: 100%; border-collapse: collapse; }
+.compare-table th {
+    padding: 1rem 1.25rem;
+    text-align: left;
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+}
+.compare-table th:not(:first-child) { text-align: center; }
+.compare-table th.pro-col {
+    color: var(--primary);
+    background: rgba(99,102,241,0.06);
+}
+.compare-table td {
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    color: var(--text);
+}
+.compare-table tr:last-child td { border-bottom: none; }
+.compare-table td:not(:first-child) { text-align: center; }
+.compare-table td.pro-col { background: rgba(99,102,241,0.03); }
+.check-yes { color: #10b981; font-size: 1.1rem; }
+.check-no  { color: var(--text3); font-size: 1.1rem; }
+.check-num { font-weight: 700; color: var(--primary); }
+
+/* Plans */
+.plans-section-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--text);
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+.plans-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.plan-card-new {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+.plan-card-new:hover {
+    border-color: rgba(99,102,241,0.5);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+}
+.plan-card-new.selected {
+    border-color: var(--primary);
+    background: rgba(99,102,241,0.06);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+.plan-card-new.popular-plan {
+    border-color: rgba(99,102,241,0.4);
+}
+.plan-popular-label {
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 0.2rem 0.85rem;
+    border-radius: 0 0 8px 8px;
+    letter-spacing: 0.3px;
+}
+.plan-period { font-size: 0.8rem; color: var(--text3); font-weight: 600; margin-bottom: 0.5rem; }
+.plan-price-big { font-size: 2.2rem; font-weight: 900; color: var(--text); line-height: 1; }
+.plan-price-big span { font-size: 1rem; font-weight: 600; color: var(--text3); }
+.plan-per-month { font-size: 0.75rem; color: var(--text3); margin-top: 0.25rem; }
+.plan-economy {
+    display: inline-block;
+    margin-top: 0.5rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 50px;
+    background: rgba(16,185,129,0.15);
+    color: #10b981;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+/* Buy button */
+.sub-buy-wrap { text-align: center; }
+.sub-buy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 2.5rem;
+    border-radius: 50px;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    font-weight: 700;
+    font-size: 1.05rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 6px 20px rgba(99,102,241,0.4);
+}
+.sub-buy-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 28px rgba(99,102,241,0.5);
+}
+.sub-note { font-size: 0.78rem; color: var(--text3); margin-top: 0.75rem; }
+
+/* Admin panel */
+.admin-sub-panel {
+    background: var(--surface);
+    border: 2px solid rgba(239,68,68,0.2);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-top: 2rem;
+}
+
+@media (max-width: 600px) {
+    .feat-grid { grid-template-columns: 1fr; }
+    .plans-row { grid-template-columns: 1fr 1fr; }
+    .compare-table { overflow-x: auto; }
+    .sub-hero { padding: 2.5rem 1.25rem 2rem; }
+}
+@media (max-width: 400px) {
+    .plans-row { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<div class="sub-hero">
+    <div class="sub-hero-badge">
+        <i class="fas fa-star"></i> СвяZь Pro
+    </div>
+    <h1>Раскрой все возможности</h1>
+    <p>Безлимитные посты, уникальные рамки, фон профиля и закреплённые посты</p>
+    {% if current_user.is_subscribed() %}
+    <div class="sub-active-banner">
+        <i class="fas fa-check-circle"></i>
+        Подписка активна до
+        {% if current_user.premium_expires_at and current_user.premium_expires_at.year < 9000 %}
+            {{ current_user.premium_expires_at.strftime('%d.%m.%Y') }}
+        {% else %}
+            навсегда ♾️
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Features -->
+<div class="features-section">
+    <div class="features-section-title">Что входит в Pro</div>
+    <div class="features-section-sub">Всё что нужно чтобы выделиться</div>
+    <div class="feat-grid">
+        <div class="feat-card">
+            <div class="feat-icon">♾️</div>
+            <div>
+                <div class="feat-title">Безлимитные посты</div>
+                <div class="feat-desc">Без Pro: не более 5 постов в день. С Pro — публикуй сколько угодно</div>
+            </div>
+        </div>
+        <div class="feat-card">
+            <div class="feat-icon">🎭</div>
+            <div>
+                <div class="feat-title">Рамки аватара</div>
+                <div class="feat-desc">Базовая золотая рамка сразу + доступ к маркету рамок</div>
+            </div>
+        </div>
+        <div class="feat-card">
+            <div class="feat-icon">🖼️</div>
+            <div>
+                <div class="feat-title">Фон профиля</div>
+                <div class="feat-desc">Загрузи своё изображение как фон страницы профиля</div>
+            </div>
+        </div>
+        <div class="feat-card">
+            <div class="feat-icon">📌</div>
+            <div>
+                <div class="feat-title">Закрепить пост</div>
+                <div class="feat-desc">Выбери один пост и закрепи его вверху своего профиля</div>
+            </div>
+        </div>
+        <div class="feat-card">
+            <div class="feat-icon">😎</div>
+            <div>
+                <div class="feat-title">Статус профиля</div>
+                <div class="feat-desc">Установи эмодзи и текст статуса — он виден на профиле</div>
+            </div>
+        </div>
+        <div class="feat-card">
+            <div class="feat-icon">⭐</div>
+            <div>
+                <div class="feat-title">Значок Pro</div>
+                <div class="feat-desc">Значок подписчика отображается рядом с именем в постах и профиле</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Compare table -->
+<div class="compare-table" style="margin-bottom:2.5rem">
+    <table>
+        <thead>
+            <tr>
+                <th>Возможность</th>
+                <th>Без подписки</th>
+                <th class="pro-col">⭐ Pro</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Постов в день</td>
+                <td><span class="check-num">5</span></td>
+                <td class="pro-col"><span class="check-yes">♾️ Без лимита</span></td>
+            </tr>
+            <tr>
+                <td>Рамки аватара</td>
+                <td><span class="check-no">—</span></td>
+                <td class="pro-col"><span class="check-yes">✓</span></td>
+            </tr>
+            <tr>
+                <td>Маркет рамок</td>
+                <td><span class="check-no">—</span></td>
+                <td class="pro-col"><span class="check-yes">✓</span></td>
+            </tr>
+            <tr>
+                <td>Фон профиля</td>
+                <td><span class="check-no">—</span></td>
+                <td class="pro-col"><span class="check-yes">✓</span></td>
+            </tr>
+            <tr>
+                <td>Закрепить пост</td>
+                <td><span class="check-no">—</span></td>
+                <td class="pro-col"><span class="check-yes">✓</span></td>
+            </tr>
+            <tr>
+                <td>Статус профиля</td>
+                <td><span class="check-no">—</span></td>
+                <td class="pro-col"><span class="check-yes">✓</span></td>
+            </tr>
+            <tr>
+                <td>Значок Pro</td>
+                <td><span class="check-no">—</span></td>
+                <td class="pro-col"><span class="check-yes">✓</span></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Plans -->
+<div class="plans-section-title">Выбери тариф</div>
+<div class="plans-row">
+    {% for key, plan in plans.items() %}
+    <div class="plan-card-new {% if key == 'month' %}popular-plan selected{% endif %}"
+         id="planCard-{{ key }}" onclick="selectPlan('{{ key }}', {{ plan.price }})">
+        {% if key == 'month' %}<div class="plan-popular-label">🔥 Популярный</div>{% endif %}
+        {% if key == 'forever' %}<div class="plan-popular-label" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">♾️ Навсегда</div>{% endif %}
+        <div class="plan-period" style="margin-top:{% if key in ['month','forever'] %}1.25rem{% else %}0{% endif %}">{{ plan.name }}</div>
+        <div class="plan-price-big">{{ plan.price }}<span> ₽</span></div>
+        <div class="plan-per-month">
+            {% if plan.days == 7 %}≈ {{ (plan.price / 7)|round(0,'floor')|int }} ₽/день
+            {% elif plan.days == 30 %}{{ plan.price }} ₽/месяц
+            {% elif plan.days == 365 %}≈ {{ (plan.price / 12)|round(0,'floor')|int }} ₽/месяц
+            {% else %}единоразово
+            {% endif %}
+        </div>
+        {% if key == 'year' %}
+        <div class="plan-economy">Экономия ~60%</div>
+        {% elif key == 'forever' %}
+        <div class="plan-economy">Лучшая цена</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<form method="POST" action="{{ url_for('buy_premium') }}" id="buyForm">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="plan" id="selectedPlanInput" value="month">
+    <div class="sub-buy-wrap">
+        <button type="submit" class="sub-buy-btn" id="buyBtn">
+            <i class="fas fa-star"></i> Оформить Pro — 199 ₽
+        </button>
+        <div class="sub-note">
+            Демо-режим: подписка активируется сразу без реальной оплаты
+        </div>
+    </div>
+</form>
+
+{% if current_user.role == 'admin' %}
+<div class="admin-sub-panel">
+    <div style="font-weight:700;color:#ef4444;margin-bottom:1rem"><i class="fas fa-crown"></i> Управление подписками (Admin)</div>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end">
+        <div>
+            <label style="font-size:0.78rem;color:var(--text2);display:block;margin-bottom:0.3rem">ID пользователя</label>
+            <input type="number" id="adminSubUserId" class="form-control" placeholder="ID" style="width:120px">
+        </div>
+        <div>
+            <label style="font-size:0.78rem;color:var(--text2);display:block;margin-bottom:0.3rem">Действие</label>
+            <select id="adminSubAction" class="form-control">
+                <option value="give_forever">Навсегда</option>
+                <option value="give_year">На год</option>
+                <option value="give_month">На месяц</option>
+                <option value="remove">Убрать</option>
+            </select>
+        </div>
+        <button onclick="adminManageSub()" class="btn btn-primary">Применить</button>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const planPrices = {
+    week: 69, month: 199, year: 999, forever: 2999
+};
+const planNames = {
+    week: 'Неделя', month: 'Месяц', year: 'Год', forever: 'Навсегда'
+};
+let activePlan = 'month';
+
+function selectPlan(key, price) {
+    activePlan = key;
+    document.getElementById('selectedPlanInput').value = key;
+    document.querySelectorAll('.plan-card-new').forEach(c => c.classList.remove('selected'));
+    document.getElementById('planCard-' + key)?.classList.add('selected');
+    document.getElementById('buyBtn').innerHTML =
+        `<i class="fas fa-star"></i> Оформить Pro — ${price} ₽`;
+}
+
+{% if current_user.role == 'admin' %}
+async function adminManageSub() {
+    const uid = document.getElementById('adminSubUserId').value;
+    const action = document.getElementById('adminSubAction').value;
+    if (!uid) { alert('Введите ID'); return; }
+    const fd = new FormData();
+    fd.append('action', action);
+    fd.append('_csrf_token', CSRF);
+    const res = await fetch(`/admin/manage_premium/${uid}`, {
+        method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd
+    });
+    const data = await res.json();
+    alert(data.success ? '✅ Подписка обновлена!' : '❌ ' + (data.error || 'Ошибка'));
+}
+{% endif %}
+</script>
+{% endblock %}

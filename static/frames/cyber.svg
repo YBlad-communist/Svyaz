@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 110" width="110" height="110">
+  <defs>
+    <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#064e3b"/>
+    </linearGradient>
+    <mask id="cm"><circle cx="55" cy="55" r="53" fill="white"/><circle cx="55" cy="55" r="44" fill="black"/></mask>
+    <filter id="cf"><feGaussianBlur stdDeviation="1" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <circle cx="55" cy="55" r="53" fill="#001a0a" mask="url(#cm)"/>
+  <!-- Hex grid segments -->
+  <g mask="url(#cm)" stroke="#10b981" stroke-width="1.5" fill="none" filter="url(#cf)">
+    <!-- Top arc segments -->
+    <path d="M 25 10 L 40 5 L 70 5 L 85 10">
+      <animate attributeName="opacity" values="1;0.2;1" dur="0.8s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 85 10 L 100 25 L 105 40">
+      <animate attributeName="opacity" values="0.2;1;0.2" dur="1.1s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 105 70 L 100 85 L 85 100">
+      <animate attributeName="opacity" values="1;0.3;1" dur="0.9s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 85 100 L 70 105 L 40 105 L 25 100">
+      <animate attributeName="opacity" values="0.3;1;0.3" dur="1.3s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 25 100 L 10 85 L 5 70">
+      <animate attributeName="opacity" values="1;0.2;1" dur="0.7s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 5 40 L 10 25 L 25 10">
+      <animate attributeName="opacity" values="0.4;1;0.4" dur="1.2s" repeatCount="indefinite"/>
+    </path>
+    <!-- Corner dots -->
+    <circle cx="55" cy="4" r="3" fill="#10b981"><animate attributeName="opacity" values="1;0;1" dur="0.8s" repeatCount="indefinite"/></circle>
+    <circle cx="103" cy="30" r="2.5" fill="#10b981"><animate attributeName="opacity" values="0;1;0" dur="1.1s" repeatCount="indefinite"/></circle>
+    <circle cx="103" cy="80" r="2.5" fill="#10b981"><animate attributeName="opacity" values="1;0;1" dur="1.3s" repeatCount="indefinite"/></circle>
+    <circle cx="55" cy="106" r="3" fill="#10b981"><animate attributeName="opacity" values="0;1;0" dur="0.9s" repeatCount="indefinite"/></circle>
+    <circle cx="7" cy="80" r="2.5" fill="#10b981"><animate attributeName="opacity" values="1;0;1" dur="1.5s" repeatCount="indefinite"/></circle>
+    <circle cx="7" cy="30" r="2.5" fill="#10b981"><animate attributeName="opacity" values="0;1;0" dur="0.7s" repeatCount="indefinite"/></circle>
+  </g>
+  <!-- Scan line -->
+  <g mask="url(#cm)">
+    <rect x="0" y="0" width="110" height="3" fill="rgba(16,185,129,0.6)">
+      <animateTransform attributeName="transform" type="translate" from="0 0" to="0 110" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0.8;0" dur="2s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+</svg>

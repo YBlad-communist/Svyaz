@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from 'macros.html' import user_avatar %}
+{% block title %}Поиск — СвяZь{% endblock %}
+{% block content %}
+<div style="max-width:720px;margin:0 auto">
+    <div class="card" style="margin-bottom:1rem">
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('search') }}">
+                <div style="display:flex;gap:0.75rem;align-items:center">
+                    <div style="flex:1;position:relative">
+                        <i class="fas fa-search" style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:var(--text3)"></i>
+                        <input type="text" name="q" class="form-control" value="{{ query or '' }}" placeholder="Поиск людей и постов..." style="padding-left:2.5rem;border-radius:50px" autofocus>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Найти</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if query %}
+    <!-- Users -->
+    {% if users %}
+    <div class="card" style="margin-bottom:1rem">
+        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Люди ({{ users|length }})</div>
+        {% for user in users %}
+        <a href="{{ url_for('profile', username=user.username) }}" class="search-user-item">
+            {{ user_avatar(user, "md") }}
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;color:var(--text);display:flex;align-items:center;gap:0.4rem">
+                    {{ user.username }}
+                    {% if user.verified %}<i class="fas fa-check-circle" style="color:var(--primary);font-size:0.8rem"></i>{% endif %}
+                    {% if user.is_premium_active() %}<span class="premium-badge" style="font-size:0.65rem">👑</span>{% endif %}
+                </div>
+                {% if user.bio %}<div style="font-size:0.82rem;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ user.bio[:60] }}</div>{% endif %}
+            </div>
+            <div style="font-size:0.8rem;color:var(--text3)">{{ user.followers.count() }} подп.</div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Posts -->
+    {% if posts %}
+    <div class="card">
+        <div class="card-header"><i class="fas fa-file-alt" style="color:var(--primary)"></i> Посты ({{ posts|length }})</div>
+        {% for post in posts %}
+        <a href="{{ url_for('view_post', post_id=post.id) }}" style="display:block;text-decoration:none">
+        <div style="padding:1rem;border-bottom:1px solid var(--border);transition:background var(--transition)" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem">
+                <img src="{{ post.author.avatar }}" class="avatar avatar-sm">
+                <span style="font-weight:600;color:var(--text)">{{ post.author.username }}</span>
+                <span style="font-size:0.78rem;color:var(--text3)">{{ post.created_at.strftime('%d.%m.%Y') }}</span>
+            </div>
+            <div style="font-size:0.9rem;color:var(--text2);line-height:1.5">{{ post.content[:200] }}{% if post.content|length > 200 %}...{% endif %}</div>
+            <div style="display:flex;gap:1rem;margin-top:0.5rem;font-size:0.8rem;color:var(--text3)">
+                <span><i class="fas fa-heart" style="color:var(--danger)"></i> {{ post.like_count }}</span>
+                <span><i class="fas fa-comment" style="color:var(--primary)"></i> {{ post.comment_count }}</span>
+            </div>
+        </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Hashtags section -->
+    {% if hashtags %}
+    <div class="card" style="margin-bottom:1rem">
+        <div class="card-header"><i class="fas fa-hashtag" style="color:var(--primary)"></i> Хештеги ({{ hashtags|length }})</div>
+        <div style="padding:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+            {% for ht in hashtags %}
+            <a href="{{ url_for('hashtag_feed', tag_name=ht.name) }}"
+               style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.4rem 0.85rem;border-radius:50px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.25);color:var(--primary);text-decoration:none;font-weight:600;font-size:0.88rem;transition:all 0.2s"
+               onmouseover="this.style.background='rgba(99,102,241,0.2)'" onmouseout="this.style.background='rgba(99,102,241,0.1)'">
+                #{{ ht.name }}
+                <span style="font-size:0.72rem;color:var(--text3);font-weight:400">{{ ht.posts_count }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if not users and not posts %}
+    <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
+        <div style="font-size:3rem;margin-bottom:0.75rem">🔍</div>
+        <div style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.3rem">Ничего не найдено</div>
+        <div>Попробуй другой запрос</div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
+        <div style="font-size:3rem;margin-bottom:0.75rem">🔍</div>
+        <div>Введи запрос для поиска людей и постов</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

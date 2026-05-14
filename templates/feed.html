@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+{% from 'macros.html' import user_avatar %}
+{% block title %}Лента — СвяZь{% endblock %}
+{% block content %}
+<div class="layout-grid">
+<!-- Left sidebar -->
+<div class="sticky-col">
+    <div class="sidebar-card">
+        <div style="padding:1.25rem;text-align:center">
+            <img src="{{ current_user.avatar }}" class="avatar avatar-lg" style="margin-bottom:0.75rem;border:3px solid var(--primary)">
+            <div style="font-weight:700;font-size:1rem;color:var(--text)">{{ current_user.username }}</div>
+            {% if current_user.is_premium_active() %}
+            <div style="margin-top:0.4rem"><span class="premium-badge"><i class="fas fa-crown"></i> Premium</span></div>
+            {% endif %}
+            <div style="display:flex;justify-content:center;gap:1.5rem;margin-top:1rem">
+                <div style="text-align:center">
+                    <div style="font-weight:800;color:var(--primary)">{{ current_user.posts.count() }}</div>
+                    <div style="font-size:0.72rem;color:var(--text3)">Постов</div>
+                </div>
+                <div style="text-align:center">
+                    <div style="font-weight:800;color:var(--primary)">{{ current_user.followers.count() }}</div>
+                    <div style="font-size:0.72rem;color:var(--text3)">Подписчики</div>
+                </div>
+                <div style="text-align:center">
+                    <div style="font-weight:800;color:var(--primary)">{{ current_user.following.count() }}</div>
+                    <div style="font-size:0.72rem;color:var(--text3)">Подписки</div>
+                </div>
+            </div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding:0.75rem">
+            <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-secondary w-100 btn-sm">
+                <i class="fas fa-user"></i> Мой профиль
+            </a>
+        </div>
+    </div>
+    <div class="sidebar-card">
+        <div class="sidebar-card-header"><i class="fas fa-bolt"></i> Быстрые ссылки</div>
+        <div style="padding:0.5rem">
+            {% for icon, label, ep in [('fa-home','Лента','feed'),('fa-comments','Чаты','chats'),('fa-bell','Уведомления','notifications'),('fa-search','Поиск','search')] %}
+            <a href="{{ url_for(ep) }}" class="dropdown-item {% if request.endpoint == ep %}text-primary{% endif %}">
+                <i class="fas {{ icon }}"></i> {{ label }}
+            </a>
+            {% endfor %}
+            {% if not current_user.is_premium_active() %}
+            <a href="{{ url_for('premium_page') }}" class="dropdown-item">
+                <i class="fas fa-crown" style="color:#f59e0b"></i> Получить Premium
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Main feed -->
+<div>
+    <!-- Compose -->
+    <div class="compose-box">
+        <form method="POST" action="{{ url_for('create_post') }}" enctype="multipart/form-data" id="composeForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                <img src="{{ current_user.avatar }}" class="avatar avatar-sm" style="margin-top:0.3rem">
+                <textarea class="compose-input" name="content" id="composeText" placeholder="Что нового, {{ current_user.username }}? Используй #хештег" maxlength="10000" autocomplete="off"></textarea>
+                <div id="hashtagSuggest" style="display:none;position:absolute;z-index:100;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);min-width:200px;max-height:180px;overflow-y:auto"></div>
+            </div>
+            <div id="mediaPreview" style="display:none;margin-top:0.75rem;border-radius:var(--radius-sm);overflow:hidden;position:relative">
+                <img id="mediaPreviewImg" style="max-height:200px;border-radius:var(--radius-sm);display:none">
+                <video id="mediaPreviewVid" style="max-height:200px;border-radius:var(--radius-sm);display:none" controls></video>
+                <button type="button" onclick="clearMedia()" style="position:absolute;top:0.4rem;right:0.4rem;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);border:none;color:white;cursor:pointer;font-size:0.8rem">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="compose-footer">
+                <label class="compose-media-btn" for="mediaInput">
+                    <i class="fas fa-image"></i> Медиа
+                </label>
+                <input type="file" id="mediaInput" name="media" accept="image/*,video/*" style="display:none" onchange="previewMedia(this)">
+                <span class="compose-counter" id="charCount">0 / 10000</span>
+                <button type="submit" class="btn btn-primary btn-sm" id="postBtn">
+                    <i class="fas fa-paper-plane"></i> Опубликовать
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Posts -->
+    {% if posts.items %}
+    {% for post in posts.items %}
+    <div class="post-card {% if current_user.is_premium_active() and current_user.customization and current_user.customization.post_style != 'default' %}post-style-{{ current_user.customization.post_style }}{% endif %}" id="post-{{ post.id }}">
+        {% if post.is_pinned %}
+        <div class="post-pinned-indicator"><i class="fas fa-thumbtack"></i> Закреплённый пост</div>
+        {% endif %}
+        <div class="post-header">
+            {{ user_avatar(post.author, "md") }}
+            <div class="post-user-info">
+                <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">
+                    {{ post.author.username }}
+                    {% if post.author.verified %}<i class="fas fa-check-circle verified-check" title="Верифицирован"></i>{% endif %}
+                    {% if post.author.is_premium_active() %}<span class="premium-badge" style="font-size:0.65rem;padding:0.1rem 0.4rem"><i class="fas fa-crown"></i></span>{% endif %}
+                    {% if post.author.role == 'admin' %}<span class="role-badge role-admin">Admin</span>{% endif %}
+                    {% if post.author.role == 'moderator' %}<span class="role-badge role-moderator">Mod</span>{% endif %}
+                </a>
+                <div class="post-time">{{ post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
+            </div>
+            <div style="margin-left:auto;position:relative">
+                <button class="btn btn-ghost btn-icon" onclick="togglePostMenu({{ post.id }}, event)">
+                    <i class="fas fa-ellipsis-h"></i>
+                </button>
+                <div class="dropdown-menu" id="postMenu-{{ post.id }}" style="min-width:160px;right:0;left:auto">
+                    <a href="{{ url_for('view_post', post_id=post.id) }}" class="dropdown-item">
+                        <i class="fas fa-eye"></i> Открыть пост
+                    </a>
+                    {% if current_user.id == post.user_id %}
+                    <button class="dropdown-item" onclick="editPost({{ post.id }})">
+                        <i class="fas fa-edit"></i> Редактировать
+                    </button>
+                    {% if current_user.is_premium_active() %}
+                    <button class="dropdown-item" onclick="pinPost({{ post.id }})">
+                        <i class="fas fa-thumbtack"></i> Закрепить
+                    </button>
+                    {% endif %}
+                    {% endif %}
+                    {% if current_user.can_delete_post(post) %}
+                    <button class="dropdown-item danger" onclick="deletePost({{ post.id }})">
+                        <i class="fas fa-trash"></i> Удалить
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="post-content" id="postContent-{{ post.id }}">{{ post.content }}</div>
+
+        {% if post.media_url %}
+        {% if post.media_type == 'image' %}
+        <img src="{{ post.media_url }}" class="post-media" alt="Media" onclick="openImage('{{ post.media_url }}')" style="cursor:zoom-in">
+        {% elif post.media_type == 'video' %}
+        <video class="post-video" controls preload="metadata">
+            <source src="{{ post.media_url }}">
+        </video>
+        {% endif %}
+        {% endif %}
+
+        <div class="post-actions">
+            <button class="post-action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}" onclick="likePost({{ post.id }}, this)">
+                <i class="fas fa-heart"></i>
+                <span class="like-count">{{ post.like_count }}</span>
+            </button>
+            <button class="post-action-btn" onclick="toggleComments({{ post.id }})">
+                <i class="fas fa-comment"></i>
+                <span>{{ post.comment_count }}</span>
+            </button>
+            <button class="post-action-btn" onclick="sharePost('{{ url_for('view_post', post_id=post.id, _external=True) }}')">
+                <i class="fas fa-share"></i>
+            </button>
+        </div>
+
+        <!-- Comments section -->
+        <div id="comments-{{ post.id }}" style="display:none">
+            {% if post.recent_comments %}
+            {% for c in post.recent_comments|reverse %}
+            <div class="comment">
+                <img src="{{ c.author.avatar }}" class="avatar avatar-sm">
+                <div class="comment-content">
+                    <a href="{{ url_for('profile', username=c.author.username) }}" class="comment-username">{{ c.author.username }}</a>
+                    <div class="comment-text">{{ c.content }}</div>
+                    <div class="comment-time">{{ c.created_at.strftime('%d.%m %H:%M') }}</div>
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+            <div style="padding:0.75rem 1.25rem;border-top:1px solid var(--border)">
+                <form onsubmit="submitComment(event, {{ post.id }})">
+                    <div style="display:flex;gap:0.6rem;align-items:center">
+                        <img src="{{ current_user.avatar }}" class="avatar avatar-sm">
+                        <input type="text" class="form-control" placeholder="Написать комментарий..." id="commentInput-{{ post.id }}" style="border-radius:50px">
+                        <button type="submit" class="btn btn-primary btn-sm btn-icon">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Pagination -->
+    {% if posts.has_next or posts.has_prev %}
+    <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1.5rem">
+        {% if posts.has_prev %}
+        <a href="{{ url_for('feed', page=posts.prev_num) }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Назад
+        </a>
+        {% endif %}
+        {% if posts.has_next %}
+        <a href="{{ url_for('feed', page=posts.next_num) }}" class="btn btn-secondary">
+            Далее <i class="fas fa-arrow-right"></i>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="card" style="text-align:center;padding:3rem 2rem;color:var(--text3)">
+        <div style="font-size:3rem;margin-bottom:1rem">🌱</div>
+        <div style="font-size:1.1rem;font-weight:600;margin-bottom:0.5rem;color:var(--text)">Лента пуста</div>
+        <div>Подписывайся на людей, чтобы видеть их посты!</div>
+        <a href="{{ url_for('search') }}" class="btn btn-primary" style="margin-top:1rem">
+            <i class="fas fa-search"></i> Найти людей
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Right sidebar -->
+<div class="sticky-col">
+    <div class="sidebar-card">
+        <div class="sidebar-card-header"><i class="fas fa-users"></i> Рекомендации</div>
+        <div id="recommendations" style="padding:0.5rem">
+            <div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.85rem">Загрузка...</div>
+        </div>
+    </div>
+    {% if not current_user.is_premium_active() %}
+    <div class="card" style="background:linear-gradient(135deg,#1e1b4b,#312e81);border:none;color:white;text-align:center;padding:1.5rem">
+        <div style="font-size:2rem;margin-bottom:0.5rem">⭐</div>
+        <div style="font-weight:700;font-size:1rem;margin-bottom:0.4rem">Безлимитные посты</div>
+        <div style="font-size:0.82rem;opacity:0.8;margin-bottom:1rem">Оформи подписку и пиши без ограничений</div>
+        <a href="{{ url_for('premium_page') }}" class="btn btn-primary btn-sm">Подписка</a>
+    </div>
+    {% endif %}
+    <!-- Trending hashtags -->
+    <div class="sidebar-card">
+        <div class="sidebar-card-header"><i class="fas fa-hashtag"></i> Тренды</div>
+        <div id="trendingTags" style="padding:0.5rem">
+            <div style="color:var(--text3);font-size:0.82rem;padding:0.5rem">Загрузка...</div>
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+// Compose counter
+const composeText = document.getElementById('composeText');
+const charCount = document.getElementById('charCount');
+composeText?.addEventListener('input', () => {
+    const len = composeText.value.length;
+    charCount.textContent = `${len} / 10000`;
+    charCount.style.color = len > 9000 ? 'var(--danger)' : 'var(--text3)';
+});
+
+// Auto-resize textarea
+composeText?.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 300) + 'px';
+});
+
+function previewMedia(input) {
+    if (!input.files[0]) return;
+    const file = input.files[0];
+    const wrap = document.getElementById('mediaPreview');
+    const img = document.getElementById('mediaPreviewImg');
+    const vid = document.getElementById('mediaPreviewVid');
+    wrap.style.display = 'block';
+    const url = URL.createObjectURL(file);
+    if (file.type.startsWith('image/')) {
+        img.src = url; img.style.display = 'block';
+        vid.style.display = 'none';
+    } else {
+        vid.src = url; vid.style.display = 'block';
+        img.style.display = 'none';
+    }
+}
+
+function clearMedia() {
+    document.getElementById('mediaInput').value = '';
+    document.getElementById('mediaPreview').style.display = 'none';
+}
+
+function togglePostMenu(postId, e) {
+    e.stopPropagation();
+    document.querySelectorAll('[id^="postMenu-"]').forEach(m => {
+        if (m.id !== `postMenu-${postId}`) m.style.opacity = '0', m.style.pointerEvents = 'none';
+    });
+    const menu = document.getElementById(`postMenu-${postId}`);
+    const isOpen = menu.style.opacity === '1';
+    menu.style.opacity = isOpen ? '0' : '1';
+    menu.style.transform = isOpen ? 'translateY(-8px) scale(0.96)' : 'translateY(0) scale(1)';
+    menu.style.pointerEvents = isOpen ? 'none' : 'all';
+}
+
+document.addEventListener('click', () => {
+    document.querySelectorAll('[id^="postMenu-"]').forEach(m => {
+        m.style.opacity = '0'; m.style.pointerEvents = 'none';
+    });
+});
+
+async function likePost(postId, btn) {
+    const res = await api(`/post/${postId}/like`);
+    if (!res) return;
+    btn.classList.toggle('liked', res.liked);
+    btn.querySelector('.like-count').textContent = res.count;
+    // Heart animation
+    btn.style.transform = 'scale(1.3)';
+    setTimeout(() => btn.style.transform = '', 200);
+}
+
+function toggleComments(postId) {
+    const el = document.getElementById(`comments-${postId}`);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    if (el.style.display === 'block') el.querySelector('input')?.focus();
+}
+
+async function submitComment(e, postId) {
+    e.preventDefault();
+    const input = document.getElementById(`commentInput-${postId}`);
+    const content = input.value.trim();
+    if (!content) return;
+    const fd = new FormData();
+    fd.append('content', content);
+    fd.append('_csrf_token', CSRF);
+    const res = await fetch(`/post/${postId}/comment`, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: new URLSearchParams({ content, _csrf_token: CSRF }) });
+    const data = await res.json();
+    if (data.success) {
+        input.value = '';
+        const c = data.comment;
+        const section = document.getElementById(`comments-${postId}`);
+        const div = document.createElement('div');
+        div.className = 'comment';
+        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${c.username}</a><div class="comment-text">${c.content}</div><div class="comment-time">только что</div></div>`;
+        section.insertBefore(div, section.lastElementChild);
+    }
+}
+
+async function deletePost(postId) {
+    if (!confirm('Удалить пост?')) return;
+    const res = await api(`/post/${postId}/delete`, 'DELETE');
+    if (res?.success) {
+        const el = document.getElementById(`post-${postId}`);
+        el.style.opacity = '0'; el.style.transform = 'translateY(-10px)'; el.style.transition = 'all 0.3s';
+        setTimeout(() => el.remove(), 300);
+    }
+}
+
+async function editPost(postId) {
+    const contentEl = document.getElementById(`postContent-${postId}`);
+    const current = contentEl.textContent.trim();
+    const newContent = prompt('Редактировать пост:', current);
+    if (!newContent || newContent === current) return;
+    const res = await api(`/post/${postId}/edit`, 'PUT', { content: newContent }, true);
+    if (res?.success) contentEl.textContent = res.content;
+}
+
+async function pinPost(postId) {
+    const res = await api(`/post/${postId}/pin`);
+    if (res?.success) { showToast('Пост закреплён! 📌', 'success'); location.reload(); }
+    else if (res?.error) showToast(res.error, 'error');
+}
+
+function sharePost(url) {
+    navigator.clipboard?.writeText(url).then(() => showToast('Ссылка скопирована!', 'success'));
+}
+
+function showToast(msg, type = 'info') {
+    const t = document.createElement('div');
+    t.className = `alert alert-${type}`;
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;min-width:260px;text-align:center;box-shadow:var(--shadow-lg)';
+    t.innerHTML = `<i class="fas fa-check-circle"></i> ${msg}`;
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// Load recommendations
+async function loadRecs() {
+    try {
+        const res = await fetch('/api/users/search?q=a');
+        const users = await res.json();
+        const el = document.getElementById('recommendations');
+        if (!users.length) { el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.85rem">Новых рекомендаций нет</div>'; return; }
+        el.innerHTML = users.slice(0, 5).map(u => `
+            <div class="search-user-item" style="padding:0.6rem 0.75rem">
+                <img src="${u.avatar}" class="avatar avatar-sm">
+                <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:0.88rem;color:var(--text)">${u.username}</div></div>
+                <a href="/user/${u.username}" class="btn btn-secondary btn-sm" style="padding:0.25rem 0.65rem;font-size:0.75rem">Профиль</a>
+            </div>
+        `).join('');
+    } catch(e) {}
+}
+// Linkify hashtags in post content
+document.querySelectorAll('.post-content').forEach(function(el) {
+    el.innerHTML = el.innerHTML.replace(/#([a-zA-Z0-9_Ѐ-ӿ]+)/g,
+        '<a href="/hashtag/$1" style="color:var(--primary);font-weight:600;text-decoration:none">#$1</a>');
+});
+loadRecs();
+
+async function loadTrending() {
+    try {
+        const res = await fetch('/api/hashtags/trending');
+        const tags = await res.json();
+        const el = document.getElementById('trendingTags');
+        if (!tags.length) { el.innerHTML = '<div style="color:var(--text3);font-size:0.82rem;padding:0.5rem">Нет трендов</div>'; return; }
+        el.innerHTML = tags.slice(0,10).map(t =>
+            `<a href="/hashtag/${t.name}" style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.5rem;border-radius:8px;text-decoration:none;color:var(--text);transition:background 0.15s" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+                <span style="font-weight:600;color:var(--primary)">#${t.name}</span>
+                <span style="font-size:0.72rem;color:var(--text3)">${t.count} постов</span>
+            </a>`
+        ).join('');
+    } catch(e) {}
+}
+loadTrending();
+
+// Hashtag autocomplete
+const composeTA = document.getElementById('composeText');
+const suggestBox = document.getElementById('hashtagSuggest');
+let hashDebounce = null;
+
+if (composeTA) {
+    composeTA.addEventListener('input', function() {
+        clearTimeout(hashDebounce);
+        const val = this.value;
+        const cursor = this.selectionStart;
+        // Найти текущее слово перед курсором
+        const before = val.slice(0, cursor);
+        const match = before.match(/#([a-zA-Z0-9_Ѐ-ӿ]*)$/u);
+        if (!match) { suggestBox.style.display = 'none'; return; }
+        const q = match[1];
+        hashDebounce = setTimeout(async () => {
+            const res = await fetch('/api/hashtags/search?q=' + encodeURIComponent(q));
+            const tags = await res.json();
+            if (!tags.length) { suggestBox.style.display = 'none'; return; }
+            suggestBox.innerHTML = tags.map(t =>
+                `<div onclick="insertHashtag('${t.name}')" style="padding:0.45rem 0.85rem;cursor:pointer;font-size:0.88rem;transition:background 0.15s" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+                    <span style="color:var(--primary);font-weight:700">#${t.name}</span>
+                    <span style="color:var(--text3);font-size:0.75rem;margin-left:0.4rem">${t.count}</span>
+                </div>`
+            ).join('');
+            // Позиционируем под textarea
+            const rect = composeTA.getBoundingClientRect();
+            suggestBox.style.display = 'block';
+            suggestBox.style.left = '0';
+            suggestBox.style.top = '100%';
+        }, 250);
+    });
+    composeTA.addEventListener('blur', () => setTimeout(() => suggestBox.style.display='none', 200));
+}
+
+function insertHashtag(name) {
+    if (!composeTA) return;
+    const val = composeTA.value;
+    const cursor = composeTA.selectionStart;
+    const before = val.slice(0, cursor);
+    const after = val.slice(cursor);
+    const newBefore = before.replace(/#[a-zA-Z0-9_Ѐ-ӿ]*$/u, '#' + name + ' ');
+    composeTA.value = newBefore + after;
+    composeTA.focus();
+    suggestBox.style.display = 'none';
+}
+</script>
+{% endblock %}

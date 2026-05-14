@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}СвяZь — Твоя социальная сеть{% endblock %}
+{% block content %}
+<div class="landing-hero">
+    
+    <h1 class="landing-title">Общайся.<br>Делись. Будь собой.</h1>
+    <p class="landing-sub">
+        СвяZь — социальная сеть нового поколения. Публикуй посты, общайся в чатах, подписывайся на интересных людей.
+    </p>
+    <div class="landing-cta">
+        <a href="{{ url_for('register') }}" class="btn btn-primary btn-lg">
+            <i class="fas fa-user-plus"></i> Начать бесплатно
+        </a>
+        <a href="{{ url_for('login') }}" class="btn btn-secondary btn-lg">
+            <i class="fas fa-sign-in-alt"></i> Войти
+        </a>
+    </div>
+</div>
+
+<!-- Features -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.5rem;max-width:900px;margin:0 auto 3rem">
+    {% for icon, title, desc, color in [
+        ('fa-stream', 'Лента постов', 'Делитесь мыслями, фото и видео. Лайки, комментарии, репосты.', '#6366f1'),
+        ('fa-comments', 'Мессенджер', 'Личные и групповые чаты с реакциями, ответами и медиафайлами.', '#8b5cf6'),
+        ('fa-crown', 'Premium', 'Эксклюзивные темы, анимации аватара, статусы и многое другое.', '#f59e0b'),
+        ('fa-shield-alt', 'Безопасность', 'Защищённые соединения, модерация и гибкие настройки приватности.', '#10b981'),
+    ] %}
+    <div class="card" style="border-top:3px solid {{ color }}">
+        <div class="card-body" style="text-align:center;padding:2rem 1.5rem">
+            <div style="width:56px;height:56px;border-radius:16px;background:{{ color }}20;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.5rem;color:{{ color }}">
+                <i class="fas {{ icon }}"></i>
+            </div>
+            <div style="font-weight:700;font-size:1.05rem;margin-bottom:0.5rem;color:var(--text)">{{ title }}</div>
+            <div style="font-size:0.88rem;color:var(--text2);line-height:1.6">{{ desc }}</div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div style="text-align:center;padding:2rem;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);max-width:600px;margin:0 auto">
+    <div style="font-size:2rem;margin-bottom:0.75rem">🚀</div>
+    <div style="font-size:1.2rem;font-weight:700;margin-bottom:0.4rem;color:var(--text)">Присоединяйся прямо сейчас</div>
+    <div style="color:var(--text2);margin-bottom:1.25rem;font-size:0.9rem">Регистрация займёт меньше минуты</div>
+    <a href="{{ url_for('register') }}" class="btn btn-primary">
+        <i class="fas fa-arrow-right"></i> Создать аккаунт
+    </a>
+</div>
+{% endblock %}

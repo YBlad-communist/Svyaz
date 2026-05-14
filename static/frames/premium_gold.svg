@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 110" width="110" height="110">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"><animate attributeName="stop-color" values="#f59e0b;#fde68a;#f59e0b" dur="2s" repeatCount="indefinite"/></stop>
+      <stop offset="40%" stop-color="#fcd34d"/>
+      <stop offset="70%" stop-color="#f97316"><animate attributeName="stop-color" values="#f97316;#fbbf24;#f97316" dur="2.5s" repeatCount="indefinite"/></stop>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <mask id="m1">
+      <circle cx="55" cy="55" r="53" fill="white"/>
+      <circle cx="55" cy="55" r="44" fill="black"/>
+    </mask>
+    <filter id="glow1">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Основное кольцо -->
+  <circle cx="55" cy="55" r="53" fill="url(#g1)" mask="url(#m1)" filter="url(#glow1)"/>
+  <!-- Вращающийся блик -->
+  <g mask="url(#m1)">
+    <ellipse cx="35" cy="25" rx="18" ry="8" fill="rgba(255,255,255,0.5)" filter="url(#glow1)">
+      <animateTransform attributeName="transform" type="rotate" from="0 55 55" to="360 55 55" dur="3s" repeatCount="indefinite"/>
+    </ellipse>
+  </g>
+  <!-- Искры -->
+  <g fill="#fde68a" filter="url(#glow1)">
+    <polygon points="55,4 56.5,8 60,8 57.2,10.5 58.3,14 55,11.8 51.7,14 52.8,10.5 50,8 53.5,8">
+      <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite"/>
+    </polygon>
+    <polygon points="99,30 100,33 103,33 100.7,35 101.6,38 99,36.3 96.4,38 97.3,35 95,33 98,33" transform="scale(0.7) translate(50,28)">
+      <animate attributeName="opacity" values="0.3;1;0.3" dur="1.8s" repeatCount="indefinite"/>
+    </polygon>
+    <polygon points="99,30 100,33 103,33 100.7,35 101.6,38 99,36.3 96.4,38 97.3,35 95,33 98,33" transform="scale(0.6) translate(-55,125)">
+      <animate attributeName="opacity" values="1;0.2;1" dur="2.1s" repeatCount="indefinite"/>
+    </polygon>
+  </g>
+</svg>

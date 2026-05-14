@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 110" width="110" height="110">
+  <defs>
+    <linearGradient id="ng" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <mask id="nm"><circle cx="55" cy="55" r="53" fill="white"/><circle cx="55" cy="55" r="44" fill="black"/></mask>
+    <filter id="nf"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <circle cx="55" cy="55" r="53" fill="url(#ng)" mask="url(#nm)">
+    <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" repeatCount="indefinite"/>
+  </circle>
+  <!-- Neon outer glow rings -->
+  <circle cx="55" cy="55" r="52" fill="none" stroke="#06b6d4" stroke-width="1.5" opacity="0.6">
+    <animate attributeName="r" values="52;54;52" dur="1.2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0;0.6" dur="1.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="55" cy="55" r="43" fill="none" stroke="#6366f1" stroke-width="1.5" opacity="0.5" mask="url(#nm)">
+    <animate attributeName="r" values="43;41;43" dur="1.2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.5;0.1;0.5" dur="1.2s" repeatCount="indefinite"/>
+  </circle>
+  <!-- Rotating dash pattern -->
+  <circle cx="55" cy="55" r="48" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" stroke-dasharray="8 6" mask="url(#nm)" filter="url(#nf)">
+    <animateTransform attributeName="transform" type="rotate" from="0 55 55" to="360 55 55" dur="4s" repeatCount="indefinite"/>
+  </circle>
+</svg>

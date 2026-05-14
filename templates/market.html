@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Маркет рамок — СвяZь{% endblock %}
+
+{% block extra_css %}
+<style>
+.market-hero {
+    text-align: center;
+    padding: 2.5rem 1.5rem 2rem;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    border: 1px solid var(--border);
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+.market-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.3) 0%, transparent 70%);
+    pointer-events: none;
+}
+.market-hero-title {
+    font-size: 2.2rem; font-weight: 900;
+    background: linear-gradient(135deg, #f59e0b, #fcd34d, #f97316);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom: 0.5rem; position: relative;
+}
+.market-hero-sub { color: rgba(255,255,255,0.7); font-size: 0.95rem; position: relative; }
+
+/* Rarity badges */
+.rarity-badge {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.15rem 0.55rem; border-radius: 50px;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+.rarity-common    { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
+.rarity-rare      { background: rgba(59,130,246,0.15);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.rarity-epic      { background: rgba(139,92,246,0.15);  color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+.rarity-legendary { background: rgba(245,158,11,0.15);  color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+
+/* Frame cards grid */
+.frames-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.25rem;
+}
+
+.frame-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: transform 0.25s, box-shadow 0.25s;
+    position: relative;
+}
+.frame-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+}
+.frame-card.owned { border-color: rgba(99,102,241,0.4); }
+.frame-card.equipped { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(99,102,241,0.3); }
+
+/* Rare glow */
+.frame-card.rarity-rare      { border-color: rgba(59,130,246,0.4); }
+.frame-card.rarity-epic      { border-color: rgba(139,92,246,0.4); }
+.frame-card.rarity-legendary { border-color: rgba(245,158,11,0.5); box-shadow: 0 0 16px rgba(245,158,11,0.15); }
+
+.frame-preview-wrap {
+    background: linear-gradient(135deg, #0f172a, #1e1b4b);
+    display: flex; align-items: center; justify-content: center;
+    padding: 2rem;
+    position: relative;
+    min-height: 180px;
+}
+
+.frame-preview-avatar {
+    width: 96px; height: 96px;
+    position: relative; display: inline-flex;
+}
+.frame-preview-avatar img.av {
+    width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+    position: relative; z-index: 1;
+}
+.frame-preview-avatar img.fr {
+    position: absolute;
+    /* Рамка чуть выходит за аватар */
+    inset: -10%;
+    width: 120%; height: 120%;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* Equipped badge */
+.equipped-badge {
+    position: absolute; top: 0.6rem; right: 0.6rem;
+    background: var(--primary); color: white;
+    font-size: 0.68rem; font-weight: 700;
+    padding: 0.2rem 0.55rem; border-radius: 50px;
+    z-index: 3;
+}
+
+.frame-info { padding: 1.1rem; }
+.frame-name {
+    font-size: 1.05rem; font-weight: 800; color: var(--text);
+    margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.4rem;
+}
+.frame-desc { font-size: 0.8rem; color: var(--text3); margin-bottom: 0.75rem; line-height: 1.4; }
+
+.frame-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.5rem; flex-wrap: wrap;
+}
+.frame-price {
+    font-size: 1rem; font-weight: 800; color: var(--text);
+}
+.frame-price.free { color: var(--success); }
+.frame-owners { font-size: 0.72rem; color: var(--text3); }
+
+/* Filter tabs */
+.filter-tabs {
+    display: flex; gap: 0.4rem; flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+.filter-tab {
+    padding: 0.35rem 0.85rem; border-radius: 50px;
+    border: 1.5px solid var(--border); background: transparent;
+    color: var(--text2); font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+}
+.filter-tab.active { border-color: var(--primary); background: rgba(99,102,241,0.12); color: var(--primary); }
+.filter-tab:hover:not(.active) { border-color: var(--text3); color: var(--text); }
+
+@media (max-width: 600px) {
+    .frames-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.85rem; }
+    .frame-preview-wrap { padding: 1.25rem; min-height: 140px; }
+    .frame-preview-avatar { width: 72px; height: 72px; }
+    .market-hero-title { font-size: 1.6rem; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<div class="market-hero">
+    <div style="font-size:3rem;margin-bottom:0.5rem">🎭</div>
+    <div class="market-hero-title">Маркет рамок</div>
+    <div class="market-hero-sub">Уникальные рамки для аватара — как подарки в Telegram</div>
+    {% if not current_user.is_premium_active() %}
+    <div style="margin-top:1rem">
+        <a href="{{ url_for('premium_page') }}" class="btn btn-premium btn-sm">
+            <i class="fas fa-crown"></i> Нужен Premium для покупки
+        </a>
+    </div>
+    {% else %}
+    <div style="margin-top:0.75rem;font-size:0.82rem;color:rgba(255,255,255,0.5)">
+        Базовая «Золотая» рамка уже в твоей коллекции 👑
+    </div>
+    {% endif %}
+</div>
+
+<!-- Фильтры -->
+<div class="filter-tabs">
+    <button class="filter-tab active" onclick="filterFrames('all', this)">Все</button>
+    <button class="filter-tab" onclick="filterFrames('owned', this)">Мои</button>
+    <button class="filter-tab rarity-common" onclick="filterFrames('common', this)">Обычные</button>
+    <button class="filter-tab rarity-rare" onclick="filterFrames('rare', this)">Редкие</button>
+    <button class="filter-tab rarity-epic" onclick="filterFrames('epic', this)">Эпические</button>
+    <button class="filter-tab rarity-legendary" onclick="filterFrames('legendary', this)">Легендарные</button>
+</div>
+
+<!-- Grid -->
+<div class="frames-grid" id="framesGrid">
+    {% for frame in frames %}
+    {% set is_owned = frame.key in owned_keys or (frame.price == 0 and current_user.is_premium_active()) %}
+    {% set is_equipped = frame.key == current_key %}
+    <div class="frame-card {% if is_equipped %}equipped{% elif is_owned %}owned{% endif %} rarity-{{ frame.rarity }}"
+         data-rarity="{{ frame.rarity }}" data-owned="{{ 'true' if is_owned else 'false' }}"
+         id="fc-{{ frame.key }}">
+
+        {% if is_equipped %}
+        <div class="equipped-badge">✓ Надета</div>
+        {% endif %}
+
+        <div class="frame-preview-wrap">
+            <div class="frame-preview-avatar">
+                <img src="{{ current_user.avatar }}" class="av" alt="">
+                <img src="{{ frame.image_url }}" class="fr" alt="{{ frame.name }}">
+            </div>
+        </div>
+
+        <div class="frame-info">
+            <div class="frame-name">
+                <span>{{ frame.emoji }}</span>
+                <span>{{ frame.name }}</span>
+                <span class="rarity-badge rarity-{{ frame.rarity }}">
+                    {{ rarity_labels.get(frame.rarity, frame.rarity) }}
+                </span>
+            </div>
+            <div class="frame-desc">{{ frame.description or '' }}</div>
+
+            <div class="frame-footer">
+                <div>
+                    {% if frame.price == 0 %}
+                    <div class="frame-price free">Бесплатно</div>
+                    <div style="font-size:0.68rem;color:var(--text3)">для Premium</div>
+                    {% else %}
+                    <div class="frame-price">{{ frame.price }} ₽</div>
+                    {% endif %}
+                    <div class="frame-owners">
+                        <i class="fas fa-users" style="font-size:0.65rem"></i>
+                        {{ frame.owners_count or 0 }} владельцев
+                    </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:0.35rem;align-items:flex-end">
+                    {% if is_equipped %}
+                    <button class="btn btn-secondary btn-sm" disabled>
+                        <i class="fas fa-check"></i> Надета
+                    </button>
+                    {% elif is_owned %}
+                    <button class="btn btn-primary btn-sm" onclick="equipFrame('{{ frame.key }}', '{{ frame.name }}')">
+                        <i class="fas fa-ring"></i> Надеть
+                    </button>
+                    {% elif current_user.is_premium_active() %}
+                    <form method="POST" action="{{ url_for('buy_frame', frame_key=frame.key) }}" style="margin:0">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-premium btn-sm">
+                            {% if frame.price == 0 %}
+                            <i class="fas fa-plus"></i> Получить
+                            {% else %}
+                            <i class="fas fa-shopping-bag"></i> Купить {{ frame.price }} ₽
+                            {% endif %}
+                        </button>
+                    </form>
+                    {% else %}
+                    <a href="{{ url_for('premium_page') }}" class="btn btn-secondary btn-sm">
+                        <i class="fas fa-lock"></i> Premium
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if not frames %}
+<div class="card" style="text-align:center;padding:4rem;color:var(--text3)">
+    <div style="font-size:3rem;margin-bottom:1rem">🎭</div>
+    <div>Рамки загружаются...</div>
+</div>
+{% endif %}
+
+<script>
+function filterFrames(filter, btn) {
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+
+    document.querySelectorAll('.frame-card').forEach(card => {
+        let show = true;
+        if (filter === 'owned') show = card.dataset.owned === 'true';
+        else if (filter !== 'all') show = card.dataset.rarity === filter;
+        card.style.display = show ? '' : 'none';
+    });
+}
+
+async function equipFrame(key, name) {
+    const res = await fetch(`/market/equip/${key}`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `_csrf_token=${CSRF}`
+    });
+    const data = await res.json();
+    if (data.success) {
+        // Убрать "надета" у старой
+        document.querySelectorAll('.equipped-badge').forEach(b => b.remove());
+        document.querySelectorAll('.frame-card').forEach(c => {
+            c.classList.remove('equipped');
+            const btn = c.querySelector('button[disabled]');
+            if (btn) {
+                btn.removeAttribute('disabled');
+                btn.className = 'btn btn-primary btn-sm';
+                btn.innerHTML = '<i class="fas fa-ring"></i> Надеть';
+                btn.onclick = function() { equipFrame(c.id.replace('fc-',''), name); };
+            }
+        });
+        // Отметить новую
+        const card = document.getElementById(`fc-${key}`);
+        if (card) {
+            card.classList.add('equipped');
+            const badge = document.createElement('div');
+            badge.className = 'equipped-badge';
+            badge.textContent = '✓ Надета';
+            card.appendChild(badge);
+            const btn = card.querySelector('button.btn-primary');
+            if (btn) { btn.disabled = true; btn.className = 'btn btn-secondary btn-sm'; btn.innerHTML = '<i class="fas fa-check"></i> Надета'; btn.onclick = null; }
+        }
+        // Используем базовый showToast из base.html с ссылкой на профиль
+        baseShowToast(`Рамка «${name}» надета! Посмотри на профиле`, PROFILE_URL, 'success');
+    }
+}
+
+// Алиас для базового showToast с поддержкой ссылки
+function baseShowToast(msg, link, type) {
+    if (typeof showToast === 'function') {
+        showToast(msg, link || '', type || 'info');
+    }
+}
+</script>
+{% endblock %}

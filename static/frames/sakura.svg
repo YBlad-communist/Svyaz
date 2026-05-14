@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 110" width="110" height="110">
+  <defs>
+    <linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fce7f3"/>
+      <stop offset="50%" stop-color="#f9a8d4"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <mask id="sm"><circle cx="55" cy="55" r="53" fill="white"/><circle cx="55" cy="55" r="44" fill="black"/></mask>
+    <filter id="sof"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <circle cx="55" cy="55" r="53" fill="url(#sg)" mask="url(#sm)"/>
+  <!-- Petals around ring -->
+  <g filter="url(#sof)">
+    <!-- Petal template: ellipse rotated around center -->
+    <g transform="rotate(0 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#fce7f3" opacity="0.9">
+        <animate attributeName="opacity" values="0.9;0.5;0.9" dur="2s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(45 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#fbcfe8" opacity="0.85">
+        <animate attributeName="opacity" values="0.5;0.9;0.5" dur="2.3s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(90 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#f9a8d4" opacity="0.9">
+        <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.8s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(135 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#fce7f3" opacity="0.8">
+        <animate attributeName="opacity" values="0.4;1;0.4" dur="2.5s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(180 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#fbcfe8" opacity="0.9">
+        <animate attributeName="opacity" values="0.8;0.3;0.8" dur="2.1s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(225 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#f9a8d4" opacity="0.85">
+        <animate attributeName="opacity" values="0.3;0.9;0.3" dur="1.9s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(270 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#fce7f3" opacity="0.9">
+        <animate attributeName="opacity" values="1;0.4;1" dur="2.2s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+    <g transform="rotate(315 55 55)">
+      <ellipse cx="55" cy="7" rx="5" ry="8" fill="#fbcfe8" opacity="0.8">
+        <animate attributeName="opacity" values="0.5;0.9;0.5" dur="2.7s" repeatCount="indefinite"/>
+      </ellipse>
+    </g>
+  </g>
+  <!-- Slow rotation overlay -->
+  <g mask="url(#sm)">
+    <circle cx="55" cy="55" r="50" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="5 10">
+      <animateTransform attributeName="transform" type="rotate" from="0 55 55" to="360 55 55" dur="10s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>

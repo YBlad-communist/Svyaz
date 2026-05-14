@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}СвяZь{% endblock %}</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style id="custom-styles"></style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- ===== Background Animation ===== -->
+<div class="bg-canvas">
+    <div class="bg-dots"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+</div>
+
+<!-- ===== Navbar ===== -->
+<nav class="navbar">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+        <i class="fas fa-link" style="margin-right:0.3rem"></i>СвяZь
+    </a>
+
+    {% if current_user.is_authenticated %}
+    <div class="navbar-search" id="desktopSearchWrap">
+        <form action="{{ url_for('search') }}" method="GET">
+            <i class="fas fa-search search-icon"></i>
+            <input type="text" name="q" placeholder="Поиск людей, постов..." value="{{ request.args.get('q', '') }}">
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="navbar-actions">
+        {% if current_user.is_authenticated %}
+        <a href="{{ url_for('feed') }}" class="nav-btn {% if request.endpoint == 'feed' %}text-primary{% endif %}" title="Лента">
+            <i class="fas fa-home"></i>
+        </a>
+        <a href="{{ url_for('chats') }}" class="nav-btn {% if request.endpoint == 'chats' %}text-primary{% endif %}" title="Чаты">
+            <i class="fas fa-comments"></i>
+        </a>
+        <a href="{{ url_for('notifications') }}" class="nav-btn {% if request.endpoint == 'notifications' %}text-primary{% endif %}" title="Уведомления">
+            <i class="fas fa-bell"></i>
+            {% set unread_count = current_user.notifications.filter_by(read=False).count() %}
+            {% if unread_count > 0 %}
+            <span class="badge">{{ unread_count if unread_count < 100 else '99+' }}</span>
+            {% endif %}
+        </a>
+        <a href="{{ url_for('market') }}" class="nav-btn {% if request.endpoint == 'market' %}text-primary{% endif %}" title="Маркет рамок" style="font-size:1.1rem">
+            🎭
+        </a>
+        <!-- Premium кнопка (ведёт на страницу подписки) -->
+        <a href="{{ url_for('premium_page') }}" class="nav-btn premium-nav-btn" title="Premium">
+            <i class="fas fa-crown" style="color:#f59e0b"></i>
+        </a>
+
+        <!-- Аватар как ссылка на профиль (без выпадающего меню) -->
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="nav-avatar-link">
+            {% if current_user.is_premium_active() %}
+            <div class="avatar-premium" style="width:36px;height:36px;cursor:pointer">
+                <img src="{{ current_user.avatar }}" class="nav-avatar" style="border:2px solid #0d0f18;width:100%;height:100%;border-radius:50%" alt="{{ current_user.username }}">
+            </div>
+            {% else %}
+            <img src="{{ current_user.avatar }}" class="nav-avatar" alt="{{ current_user.username }}">
+            {% endif %}
+        </a>
+
+        <!-- Кнопка выхода -->
+        <a href="{{ url_for('logout') }}" class="nav-btn logout-btn" title="Выйти">
+            <i class="fas fa-sign-out-alt"></i>
+        </a>
+        {% else %}
+        <a href="{{ url_for('login') }}" class="btn btn-ghost btn-sm">Вход</a>
+        <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Регистрация</a>
+        {% endif %}
+    </div>
+</nav>
+
+<!-- ===== Bottom Mobile Nav ===== -->
+{% if current_user.is_authenticated %}
+<nav class="bottom-nav">
+    <div class="bottom-nav-items">
+        <a href="{{ url_for('feed') }}" class="bottom-nav-item {% if request.endpoint == 'feed' %}active{% endif %}">
+            <i class="fas fa-home"></i><span>Лента</span>
+        </a>
+        <a href="{{ url_for('search') }}" class="bottom-nav-item {% if request.endpoint == 'search' %}active{% endif %}">
+            <i class="fas fa-search"></i><span>Поиск</span>
+        </a>
+        <a href="{{ url_for('chats') }}" class="bottom-nav-item {% if request.endpoint == 'chats' %}active{% endif %}">
+            <i class="fas fa-comments"></i><span>Чаты</span>
+        </a>
+        <a href="{{ url_for('notifications') }}" class="bottom-nav-item {% if request.endpoint == 'notifications' %}active{% endif %}">
+            <i class="fas fa-bell"></i>
+            {% set unc = current_user.notifications.filter_by(read=False).count() %}
+            {% if unc > 0 %}<span class="badge">{{ unc }}</span>{% endif %}
+            <span>События</span>
+        </a>
+        <a href="{{ url_for('market') }}" class="bottom-nav-item {% if request.endpoint == 'market' %}active{% endif %}">
+            <span style="font-size:1.2rem;line-height:1">🎭</span>
+            <span>Маркет</span>
+        </a>
+        <a href="{{ url_for('profile', username=current_user.username) }}" class="bottom-nav-item {% if request.endpoint == 'profile' and request.view_args.get('username') == current_user.username %}active{% endif %}">
+            <i class="fas fa-user"></i><span>Профиль</span>
+        </a>
+    </div>
+</nav>
+{% endif %}
+
+<!-- ===== Flash messages ===== -->
+<main>
+<div class="container">
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div style="margin-bottom:1rem">
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category if category != 'message' else 'info' }}">
+                <i class="fas {% if category == 'success' %}fa-check-circle{% elif category == 'error' or category == 'danger' %}fa-exclamation-circle{% else %}fa-info-circle{% endif %}"></i>
+                {{ message }}
+                <button class="alert-close" onclick="this.parentElement.remove()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+</div>
+</main>
+
+<!-- ===== Image viewer modal ===== -->
+<div class="img-modal" id="imgModal" style="display:none" onclick="document.getElementById('imgModal').style.display='none'">
+    <button class="img-modal-close"><i class="fas fa-times"></i></button>
+    <img id="imgModalSrc" src="" alt="">
+</div>
+
+<!-- ===== Context menu ===== -->
+<div class="context-menu" id="contextMenu" style="display:none"></div>
+
+<!-- ===== Toast notifications stack (bottom-right) ===== -->
+<div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+// Тёмная тема — единственная, переключение убрано
+
+// AJAX helper
+async function api(url, method = 'POST', data = null, isJson = false) {
+    const opts = {
+        method,
+        headers: { 'X-CSRFToken': CSRF }
+    };
+    if (data && !isJson) {
+        const fd = new URLSearchParams();
+        fd.append('_csrf_token', CSRF);
+        for (const [k, v] of Object.entries(data)) fd.append(k, v);
+        opts.body = fd;
+        opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    } else if (data && isJson) {
+        opts.body = JSON.stringify({ ...data, _csrf_token: CSRF });
+        opts.headers['Content-Type'] = 'application/json';
+    }
+    try {
+        const r = await fetch(url, opts);
+        return await r.json();
+    } catch (e) {
+        console.error(e);
+        return null;
+    }
+}
+
+// Auto-close alerts
+setTimeout(() => {
+    document.querySelectorAll('.alert').forEach(a => {
+        a.style.transition = 'opacity 0.4s, max-height 0.4s';
+        a.style.opacity = '0';
+        a.style.maxHeight = '0';
+        setTimeout(() => a.remove(), 400);
+    });
+}, 4000);
+
+// Close context menu on click outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#contextMenu')) {
+        document.getElementById('contextMenu').style.display = 'none';
+    }
+});
+
+
+// ---- Apply Premium Custom Styles ----
+async function applyCustomStyles() {
+    try {
+        const resp = await fetch('/api/customization');
+        const data = await resp.json();
+        if (!data || Object.keys(data).length === 0) return;
+
+        function parseGrad(raw) {
+            if (!raw) return null;
+            const shimmer = raw.includes('||shimmer');
+            const css = raw.replace('||shimmer', '').trim();
+            return { css, shimmer };
+        }
+
+        let styleText = '@keyframes gradShimmer{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}';
+
+        // Фон профиля
+        if (data.profile_background_type === 'image' && data.profile_background_url) {
+            styleText += `.profile-hero{background-image:url('${data.profile_background_url}')!important;background-size:cover!important;background-position:center!important;}`;
+        } else if (data.profile_background_type === 'gradient' && data.profile_background_gradient) {
+            const g = parseGrad(data.profile_background_gradient);
+            styleText += `.profile-hero{background:${g.css}!important;${g.shimmer ? 'background-size:300% 300%!important;animation:gradShimmer 5s ease infinite!important;' : ''}}`;
+        }
+
+        // Градиент постов
+        if (data.post_style === 'gradient' && data.post_style_gradient) {
+            const g = parseGrad(data.post_style_gradient);
+            styleText += `.post-card{background:${g.css}!important;${g.shimmer ? 'background-size:300% 300%!important;animation:gradShimmer 4s ease infinite!important;' : ''}}`;
+        } else if (data.post_style === 'card-glass') {
+            styleText += `.post-card{background:rgba(255,255,255,0.04)!important;backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);}`;
+        }
+
+        // Градиент сообщений
+        if (data.message_style === 'gradient' && data.message_style_gradient) {
+            const g = parseGrad(data.message_style_gradient);
+            styleText += `.message-group.mine .message-bubble{background:${g.css}!important;${g.shimmer ? 'background-size:300% 300%!important;animation:gradShimmer 4s ease infinite!important;' : ''}}`;
+        }
+
+        // Шрифт
+        if (data.font_style === 'mono') styleText += `body{font-family:'Fira Code',monospace;}`;
+        else if (data.font_style === 'serif') styleText += `body{font-family:Georgia,serif;}`;
+
+        const el = document.getElementById('custom-styles');
+        if (el) el.innerHTML = styleText;
+
+        // Классы
+        if (data.chat_theme && data.chat_theme !== 'default')
+            document.body.classList.add('chat-theme-' + data.chat_theme);
+        if (data.message_style && !['default','gradient'].includes(data.message_style))
+            document.body.classList.add('msg-style-' + data.message_style);
+    } catch(e) { console.error('customStyles:', e); }
+}
+// Image viewer
+function openImage(src) {
+    document.getElementById('imgModalSrc').src = src;
+    document.getElementById('imgModal').style.display = 'flex';
+}
+
+// ===== Toast notifications (bottom-right) =====
+function showToast(content, link = '', type = 'info') {
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-comment-dots';
+    t.innerHTML = `
+        <div class="toast-icon"><i class="fas ${icon}"></i></div>
+        <div class="toast-body">
+            <div class="toast-text">${String(content || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+            ${link ? `<a class="toast-link" href="${link}">Открыть</a>` : ``}
+        </div>
+        <button class="toast-close" aria-label="Закрыть"><i class="fas fa-times"></i></button>
+    `;
+    t.querySelector('.toast-close')?.addEventListener('click', () => t.remove());
+    stack.appendChild(t);
+    // автоскрытие
+    setTimeout(() => { t.classList.add('toast-hide'); }, 4200);
+    setTimeout(() => { t.remove(); }, 4700);
+}
+
+// Poll unread "message" notifications and show as toasts (works on all pages)
+let __notifAfterId = 0;
+async function pollToastNotifications() {
+    try {
+        const r = await fetch(`/api/notifications/poll?type=message&limit=5&after_id=${__notifAfterId}`);
+        const data = await r.json();
+        if (data && Array.isArray(data.items) && data.items.length) {
+            data.items.forEach(n => showToast(n.content, n.link, 'info'));
+            __notifAfterId = Math.max(__notifAfterId, data.max_id || __notifAfterId);
+        }
+    } catch (e) {
+        // тихо
+    }
+}
+</script>
+{% if current_user.is_authenticated %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    applyCustomStyles();
+    // небольшая задержка чтобы не спамить запросами во время загрузки
+    setTimeout(() => {
+        pollToastNotifications();
+        setInterval(pollToastNotifications, 2500);
+    }, 800);
+});
+</script>
+{% endif %}
+{% block extra_js %}{% endblock %}
+</body>
+</html>
