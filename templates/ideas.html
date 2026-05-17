@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Идеи — СвяZь{% endblock %}
+{% block content %}
+<div class="layout-grid">
+<div class="sticky-col">
+    <div class="sidebar-card">
+        <div class="sidebar-card-header"><i class="fas fa-lightbulb"></i> Фильтры</div>
+        <div style="padding:0.75rem">
+            <form method="GET" action="{{ url_for('ideas_feed') }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <div class="form-group">
+                    <label class="form-label" style="font-size:0.82rem">Технология</label>
+                    <select name="tech" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">Все</option>
+                        {% for t in technologies %}
+                        <option value="{{ t.name }}" {% if tech_filter == t.name %}selected{% endif %}>{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size:0.82rem">Роль</label>
+                    <select name="role" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">Все</option>
+                        {% for r in roles %}
+                        <option value="{{ r.name }}" {% if role_filter == r.name %}selected{% endif %}>{{ r.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h2 style="font-weight:800;color:var(--text)"><i class="fas fa-lightbulb" style="color:#f59e0b"></i> Идеи проектов</h2>
+        <a href="{{ url_for('idea_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Создать идею
+        </a>
+    </div>
+
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+        <a href="{{ url_for('ideas_feed', sort='hot', tech=tech_filter, role=role_filter) }}"
+           class="btn btn-sm {% if sort == 'hot' %}btn-primary{% else %}btn-secondary{% endif %}">
+            <i class="fas fa-fire"></i> Популярные
+        </a>
+        <a href="{{ url_for('ideas_feed', sort='new', tech=tech_filter, role=role_filter) }}"
+           class="btn btn-sm {% if sort == 'new' %}btn-primary{% else %}btn-secondary{% endif %}">
+            <i class="fas fa-clock"></i> Новые
+        </a>
+    </div>
+
+    {% if ideas.items %}
+    {% for idea in ideas.items %}
+    <div class="card" style="margin-bottom:1rem">
+        <div style="padding:1.25rem">
+            <div style="display:flex;gap:1rem">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem;min-width:50px">
+                    <button class="idea-like-btn {% if idea.liked_by_user %}liked{% endif %}"
+                            onclick="likeIdea({{ idea.id }}, this)" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--text3);padding:0.25rem">
+                        <i class="fas fa-heart"></i>
+                    </button>
+                    <span class="idea-like-count" id="likes-{{ idea.id }}" style="font-weight:800;font-size:1.1rem;color:var(--text)">{{ idea.likes_count }}</span>
+                </div>
+                <div style="flex:1;min-width:0">
+                    <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="text-decoration:none">
+                        <h3 style="font-weight:700;color:var(--text);margin:0 0 0.5rem;font-size:1.1rem">{{ idea.title }}</h3>
+                    </a>
+                    <p style="color:var(--text2);font-size:0.9rem;margin:0 0 0.75rem;line-height:1.5">
+                        {{ idea.description[:200] }}{% if idea.description|length > 200 %}...{% endif %}
+                    </p>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.75rem">
+                        {% for tech in idea.technologies[:6] %}
+                        <span style="display:inline-block;padding:0.2rem 0.6rem;border-radius:50px;background:rgba(99,102,241,0.12);color:var(--primary);font-size:0.75rem;font-weight:600">{{ tech.name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% if idea.roles_needed|length > 0 %}
+                    <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem">
+                        <span style="font-size:0.75rem;color:var(--text3);font-weight:600">Ищут:</span>
+                        {% for role in idea.roles_needed[:5] %}
+                        <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(16,185,129,0.1);color:#10b981;font-size:0.72rem;font-weight:600">
+                            <i class="fas {{ role.icon or 'fa-user' }}" style="font-size:0.65rem"></i> {{ role.label }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div style="display:flex;align-items:center;gap:0.75rem;font-size:0.8rem;color:var(--text3)">
+                        <a href="{{ url_for('profile', username=idea.author.username) }}" style="color:var(--text2);text-decoration:none;font-weight:600">
+                            <img src="{{ idea.author.avatar }}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:0.3rem">
+                            {{ idea.author.username }}
+                        </a>
+                        <span><i class="fas fa-clock"></i> {{ idea.created_at.strftime('%d.%m.%Y') }}</span>
+                        <span><i class="fas fa-heart"></i> {{ idea.likes_count }} поддержали</span>
+                        {% if idea.author_id != current_user.id %}
+                        <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="color:var(--primary);text-decoration:none;font-weight:600">
+                            <i class="fas fa-user-plus"></i> Вступить
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if ideas.has_next or ideas.has_prev %}
+    <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1.5rem">
+        {% if ideas.has_prev %}
+        <a href="{{ url_for('ideas_feed', page=ideas.prev_num, sort=sort, tech=tech_filter, role=role_filter) }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Назад
+        </a>
+        {% endif %}
+        {% if ideas.has_next %}
+        <a href="{{ url_for('ideas_feed', page=ideas.next_num, sort=sort, tech=tech_filter, role=role_filter) }}" class="btn btn-secondary">
+            Далее <i class="fas fa-arrow-right"></i>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card" style="text-align:center;padding:3rem 2rem;color:var(--text3)">
+        <div style="font-size:3rem;margin-bottom:1rem">💡</div>
+        <div style="font-size:1.1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">Идей пока нет</div>
+        <div>Будь первым — поделись своей идеей!</div>
+        <a href="{{ url_for('idea_create') }}" class="btn btn-primary" style="margin-top:1rem">
+            <i class="fas fa-plus"></i> Создать идею
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<div class="sticky-col">
+    <div class="sidebar-card">
+        <div class="sidebar-card-header"><i class="fas fa-code"></i> Технологии</div>
+        <div style="padding:0.75rem;display:flex;flex-wrap:wrap;gap:0.4rem">
+            {% for t in technologies[:20] %}
+            <a href="{{ url_for('ideas_feed', tech=t.name) }}"
+               style="display:inline-block;padding:0.25rem 0.65rem;border-radius:50px;background:rgba(99,102,241,0.08);color:var(--primary);font-size:0.78rem;text-decoration:none;font-weight:500;transition:background 0.15s"
+               onmouseover="this.style.background='rgba(99,102,241,0.18)'" onmouseout="this.style.background='rgba(99,102,241,0.08)'">
+                {{ t.name }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+async function likeIdea(ideaId, btn) {
+    const res = await fetch(`/idea/${ideaId}/like`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': CSRF,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ _csrf_token: CSRF })
+    });
+    const data = await res.json();
+    if (data.count !== undefined) {
+        document.getElementById(`likes-${ideaId}`).textContent = data.count;
+        btn.classList.toggle('liked', data.liked);
+    }
+}
+</script>
+{% endblock %}

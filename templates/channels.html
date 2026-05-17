@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Каналы — СвяZь{% endblock %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h2 style="font-weight:800;color:var(--text)"><i class="fas fa-users" style="color:var(--primary)"></i> Каналы</h2>
+        <a href="{{ url_for('channel_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Создать канал
+        </a>
+    </div>
+
+    {% if my_channels %}
+    <div class="card" style="margin-bottom:1rem">
+        <div class="card-header"><i class="fas fa-star" style="color:#f59e0b"></i> Мои каналы</div>
+        {% for ch in my_channels %}
+        <a href="{{ url_for('channel_page', channel_name=ch.name) }}" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-bottom:1px solid var(--border);text-decoration:none;transition:background 0.15s"
+           onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
+            {% if ch.avatar_url %}
+            <img src="{{ ch.avatar_url }}" style="width:40px;height:40px;border-radius:50%;object-fit:cover">
+            {% else %}
+            <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:1.1rem">{{ ch.title[0]|upper }}</div>
+            {% endif %}
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;color:var(--text)">{{ ch.title }}</div>
+                <div style="font-size:0.8rem;color:var(--text3)">{{ ch.member_count() }} участников · {{ ch.type == 'public' and 'Публичный' or 'Приватный' }}</div>
+            </div>
+            {% if ch.is_verified %}<i class="fas fa-check-circle" style="color:#60a5fa"></i>{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="GET" action="{{ url_for('channels_list') }}" style="margin-bottom:1rem">
+        <div style="display:flex;gap:0.5rem">
+            <input type="text" name="q" class="form-control" value="{{ query }}" placeholder="Поиск каналов..." style="border-radius:50px">
+            <select name="type" class="form-control" style="width:auto;border-radius:50px" onchange="this.form.submit()">
+                <option value="all" {% if type_filter == 'all' %}selected{% endif %}>Все</option>
+                <option value="public" {% if type_filter == 'public' %}selected{% endif %}>Публичные</option>
+                <option value="private" {% if type_filter == 'private' %}selected{% endif %}>Приватные</option>
+            </select>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+        </div>
+    </form>
+
+    {% if channels.items %}
+    {% for ch in channels.items %}
+    <div class="card" style="margin-bottom:0.75rem">
+        <a href="{{ url_for('channel_page', channel_name=ch.name) }}" style="display:flex;align-items:center;gap:1rem;padding:1rem;text-decoration:none">
+            {% if ch.avatar_url %}
+            <img src="{{ ch.avatar_url }}" style="width:56px;height:56px;border-radius:50%;object-fit:cover">
+            {% else %}
+            <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:1.4rem">{{ ch.title[0]|upper }}</div>
+            {% endif %}
+            <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                    <span style="font-weight:700;color:var(--text);font-size:1.05rem">{{ ch.title }}</span>
+                    {% if ch.is_verified %}<i class="fas fa-check-circle" style="color:#60a5fa"></i>{% endif %}
+                    <span style="font-size:0.75rem;color:var(--text3)">/{{ ch.name }}</span>
+                </div>
+                {% if ch.description %}
+                <div style="font-size:0.85rem;color:var(--text3);margin-top:0.25rem">{{ ch.description[:120] }}{% if ch.description|length > 120 %}...{% endif %}</div>
+                {% endif %}
+                <div style="font-size:0.78rem;color:var(--text3);margin-top:0.3rem">
+                    {{ ch.member_count() }} участников · {{ ch.posts.count() }} постов · {{ ch.type == 'public' and 'Публичный' or 'Приватный' }}
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+
+    {% if channels.has_next or channels.has_prev %}
+    <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
+        {% if channels.has_prev %}
+        <a href="{{ url_for('channels_list', page=channels.prev_num, q=query, type=type_filter) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Назад</a>
+        {% endif %}
+        {% if channels.has_next %}
+        <a href="{{ url_for('channels_list', page=channels.next_num, q=query, type=type_filter) }}" class="btn btn-secondary">Далее <i class="fas fa-arrow-right"></i></a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
+        <div style="font-size:3rem;margin-bottom:1rem">📢</div>
+        <div style="font-weight:600;color:var(--text);margin-bottom:0.5rem">Каналов пока нет</div>
+        <div>Создайте первый канал!</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

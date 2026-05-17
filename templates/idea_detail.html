@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}{{ idea.title }} — СвяZь{% endblock %}
+{% block content %}
+<div style="max-width:800px;margin:0 auto">
+    <div style="margin-bottom:1rem">
+        <a href="{{ url_for('ideas_feed') }}" style="color:var(--primary);text-decoration:none;font-size:0.9rem">
+            <i class="fas fa-arrow-left"></i> Назад к идеям
+        </a>
+    </div>
+
+    <div class="card">
+        <div style="padding:1.5rem">
+            <div style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem;min-width:60px">
+                    <button class="idea-like-btn {% if idea.liked_by_user %}liked{% endif %}"
+                            onclick="likeIdea({{ idea.id }}, this)" style="background:none;border:none;cursor:pointer;font-size:1.8rem;color:var(--text3);padding:0.25rem">
+                        <i class="fas fa-heart"></i>
+                    </button>
+                    <span id="likes-{{ idea.id }}" style="font-weight:800;font-size:1.3rem;color:var(--text)">{{ idea.likes_count }}</span>
+                    <span style="font-size:0.7rem;color:var(--text3)">поддержали</span>
+                </div>
+                <div style="flex:1">
+                    <h1 style="font-weight:800;color:var(--text);margin:0 0 0.5rem;font-size:1.5rem">{{ idea.title }}</h1>
+                    <div style="display:flex;align-items:center;gap:0.75rem;font-size:0.85rem;color:var(--text3);margin-bottom:1rem">
+                        <a href="{{ url_for('profile', username=idea.author.username) }}" style="color:var(--text2);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:0.4rem">
+                            <img src="{{ idea.author.avatar }}" style="width:24px;height:24px;border-radius:50%">
+                            {{ idea.author.username }}
+                        </a>
+                        <span><i class="fas fa-clock"></i> {{ idea.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                    </div>
+                </div>
+                {% if current_user.id == idea.author_id %}
+                <form method="POST" action="{{ url_for('idea_delete', idea_id=idea.id) }}" style="flex-shrink:0">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Удалить идею?')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+
+            <div style="color:var(--text);line-height:1.7;margin-bottom:1.5rem;font-size:0.95rem">
+                {{ idea.description }}
+            </div>
+
+            {% if idea.problem %}
+            <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:var(--radius-sm);padding:1rem;margin-bottom:1rem">
+                <h4 style="color:#ef4444;font-weight:700;margin:0 0 0.5rem;font-size:0.9rem">
+                    <i class="fas fa-exclamation-triangle"></i> Проблема
+                </h4>
+                <p style="color:var(--text2);margin:0;line-height:1.6">{{ idea.problem }}</p>
+            </div>
+            {% endif %}
+
+            {% if idea.solution %}
+            <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:var(--radius-sm);padding:1rem;margin-bottom:1.5rem">
+                <h4 style="color:#10b981;font-weight:700;margin:0 0 0.5rem;font-size:0.9rem">
+                    <i class="fas fa-check-circle"></i> Решение
+                </h4>
+                <p style="color:var(--text2);margin:0;line-height:1.6">{{ idea.solution }}</p>
+            </div>
+            {% endif %}
+
+            {% if idea.technologies|length > 0 %}
+            <div style="margin-bottom:1rem">
+                <h4 style="font-weight:700;color:var(--text);margin:0 0 0.5rem;font-size:0.9rem">
+                    <i class="fas fa-code" style="color:var(--primary)"></i> Технологии
+                </h4>
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem">
+                    {% for tech in idea.technologies %}
+                    <a href="{{ url_for('ideas_feed', tech=tech.name) }}"
+                       style="display:inline-block;padding:0.3rem 0.75rem;border-radius:50px;background:rgba(99,102,241,0.1);color:var(--primary);font-size:0.82rem;text-decoration:none;font-weight:600;transition:background 0.15s"
+                       onmouseover="this.style.background='rgba(99,102,241,0.2)'" onmouseout="this.style.background='rgba(99,102,241,0.1)'">
+                        {{ tech.name }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if idea.roles_needed|length > 0 %}
+            <div style="margin-bottom:1.5rem">
+                <h4 style="font-weight:700;color:var(--text);margin:0 0 0.5rem;font-size:0.9rem">
+                    <i class="fas fa-users" style="color:#10b981"></i> Ищут в команду
+                </h4>
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
+                    {% for role in idea.roles_needed %}
+                    <span style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.4rem 0.85rem;border-radius:50px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10b981;font-size:0.85rem;font-weight:600">
+                        <i class="fas {{ role.icon or 'fa-user' }}"></i> {{ role.label }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if idea.chat_id %}
+            <div style="border-top:1px solid var(--border);padding-top:1rem;display:flex;gap:0.75rem;flex-wrap:wrap">
+                {% if idea.is_author or idea.is_member %}
+                <a href="{{ url_for('chats') }}" class="btn btn-primary" onclick="window.location.href='/chats?chat={{ idea.chat_id }}';return false">
+                    <i class="fas fa-comments"></i> Перейти в чат идеи
+                </a>
+                {% elif idea.has_pending %}
+                <button class="btn btn-secondary" disabled>
+                    <i class="fas fa-clock"></i> Заявка на рассмотрении
+                </button>
+                {% else %}
+                <form method="POST" action="{{ url_for('idea_join_request', idea_id=idea.id) }}" style="display:inline">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-user-plus"></i> Запросить участие в обсуждении
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if pending_requests %}
+            <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem">
+                <h4 style="font-weight:700;color:var(--text);margin:0 0 0.75rem;font-size:0.9rem">
+                    <i class="fas fa-user-clock" style="color:var(--warning)"></i> Заявки на участие ({{ pending_requests|length }})
+                </h4>
+                {% for req in pending_requests %}
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.8rem;background:var(--bg2);border-radius:var(--radius-xs);margin-bottom:0.5rem">
+                    <div style="display:flex;align-items:center;gap:0.6rem">
+                        <img src="{{ req.user.avatar }}" style="width:28px;height:28px;border-radius:50%">
+                        <a href="{{ url_for('profile', username=req.user.username) }}" style="font-weight:600;color:var(--text);text-decoration:none;font-size:0.9rem">{{ req.user.username }}</a>
+                        <span style="font-size:0.75rem;color:var(--text3)">{{ req.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                    </div>
+                    <div style="display:flex;gap:0.4rem">
+                        <form method="POST" action="{{ url_for('idea_approve_join', idea_id=idea.id, user_id=req.user.id) }}" style="display:inline">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3)">
+                                <i class="fas fa-check"></i> Принять
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('idea_reject_join', idea_id=idea.id, user_id=req.user.id) }}" style="display:inline">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)">
+                                <i class="fas fa-times"></i> Отклонить
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if idea.author.github_username %}
+    <div class="card" style="margin-top:1rem">
+        <div class="card-header"><i class="fab fa-github"></i> GitHub автора</div>
+        <div style="padding:1rem">
+            <a href="https://github.com/{{ idea.author.github_username }}" target="_blank" rel="noopener noreferrer"
+               style="color:var(--text);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:0.5rem">
+                <i class="fab fa-github" style="font-size:1.3rem"></i> @{{ idea.author.github_username }}
+            </a>
+            <div id="githubRepos" style="margin-top:0.75rem"></div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+async function likeIdea(ideaId, btn) {
+    const res = await fetch(`/idea/${ideaId}/like`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': CSRF,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ _csrf_token: CSRF })
+    });
+    const data = await res.json();
+    if (data.count !== undefined) {
+        document.getElementById(`likes-${ideaId}`).textContent = data.count;
+        btn.classList.toggle('liked', data.liked);
+    }
+}
+
+{% if idea.author.github_username %}
+async function loadGitHubRepos() {
+    try {
+        const res = await fetch('/api/github/{{ idea.author.github_username }}');
+        const data = await res.json();
+        const el = document.getElementById('githubRepos');
+        if (data.repos && data.repos.length) {
+            el.innerHTML = data.repos.map(r => `
+                <a href="${r.url}" target="_blank" rel="noopener noreferrer"
+                   style="display:block;padding:0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:0.5rem;text-decoration:none;transition:border-color 0.15s"
+                   onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
+                    <div style="font-weight:600;color:var(--primary)">${r.name}</div>
+                    ${r.description ? `<div style="font-size:0.82rem;color:var(--text3);margin-top:0.25rem">${r.description}</div>` : ''}
+                    <div style="display:flex;gap:1rem;margin-top:0.4rem;font-size:0.78rem;color:var(--text3)">
+                        ${r.language ? `<span><i class="fas fa-circle" style="color:var(--primary);font-size:0.5rem"></i> ${r.language}</span>` : ''}
+                        <span><i class="fas fa-star"></i> ${r.stars}</span>
+                        <span><i class="fas fa-code-branch"></i> ${r.forks}</span>
+                    </div>
+                </a>
+            `).join('');
+        } else {
+            el.innerHTML = '<div style="color:var(--text3);font-size:0.85rem">Нет публичных репозиториев</div>';
+        }
+    } catch(e) {}
+}
+document.addEventListener('DOMContentLoaded', loadGitHubRepos);
+{% endif %}
+</script>
+{% endblock %}

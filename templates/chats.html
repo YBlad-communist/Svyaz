@@ -359,15 +359,10 @@ function showToastMessage(msg, type = 'info') {
     setTimeout(() => toast.remove(), 3900);
 }
 
-// Рендер аватара с премиум-рамкой (использует CSS-класс avatar-premium)
-function renderAvatar(src, size, isPremium) {
+// Рендер аватара
+function renderAvatar(src, size) {
     const sizeMap = { xs: 28, sm: 36, md: 48, lg: 80 };
     const px = sizeMap[size] || 48;
-    if (isPremium) {
-        return `<div class="avatar-premium" style="width:${px}px;height:${px}px;flex-shrink:0">
-                    <img src="${src}" class="avatar avatar-${size}" style="border:2px solid #0d0f18;width:100%;height:100%;object-fit:cover;border-radius:50%">
-                </div>`;
-    }
     return `<img src="${src}" class="avatar avatar-${size}" style="width:${px}px;height:${px}px">`;
 }
 
@@ -385,7 +380,7 @@ async function loadChats(filter = '') {
     list.innerHTML = filtered.map(c => `
         <div class="chat-item ${c.id == currentChatId ? 'active' : ''}" onclick="openChat(${c.id})" id="chatItem-${c.id}" data-user-id="${c.user_id || ''}">
             <div style="position:relative">
-                ${renderAvatar(c.avatar, 'md', c.is_premium || false)}
+                ${renderAvatar(c.avatar, 'md')}
                 ${c.is_group ? '' : `<div id="onlineDot-${c.user_id || ''}" style="display:none;position:absolute;bottom:1px;right:1px;width:10px;height:10px;border-radius:50%;background:var(--success);border:2px solid var(--surface2)"></div>`}
             </div>
             <div class="chat-item-info">
@@ -574,7 +569,7 @@ function createMsgElement(msg, showName = true) {
 
     if (chatIsGroup && !msg.is_mine && showName) {
         html += `<div class="message-sender-name" style="display:flex;align-items:center;gap:0.3rem">
-            ${renderAvatar(msg.sender_avatar || '', 'xs', msg.sender_is_premium || false)}
+            ${renderAvatar(msg.sender_avatar || '', 'xs')}
             ${msg.sender_username}
         </div>`;
     }
@@ -653,7 +648,7 @@ async function sendMessage() {
             const placeholder = container.querySelector('[style*="Нет сообщений"]');
             if (placeholder) placeholder.remove();
             if (!messageExistsInDom(msg.id)) {
-                const el = createMsgElement({ ...msg, reactions: {}, sender_is_premium: {{ current_user.is_premium_active()|tojson }} }, true);
+                const el = createMsgElement({ ...msg, reactions: {} }, true);
                 container.appendChild(el);
             }
             scrollToBottom();

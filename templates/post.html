@@ -13,7 +13,6 @@
                 <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">
                     {{ post.author.username }}
                     {% if post.author.verified %}<i class="fas fa-check-circle verified-check"></i>{% endif %}
-                    {% if post.author.is_premium_active() %}<span class="premium-badge" style="font-size:0.65rem;padding:0.1rem 0.4rem"><i class="fas fa-crown"></i></span>{% endif %}
                 </a>
                 <div class="post-time">{{ post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
             </div>

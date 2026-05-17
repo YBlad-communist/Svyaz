@@ -3,10 +3,14 @@ import secrets
 import logging
 from datetime import datetime, timedelta
 from functools import wraps
+from urllib.parse import urlparse
+from dotenv import load_dotenv
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, g, send_file, abort
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, g, send_from_directory, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from flask_limiter import Limiter, util
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -15,32 +19,29 @@ from flask_talisman import Talisman
 import redis
 
 from database import db
-from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants, PinnedMessage, Reaction, sanitize_html, UserCustomization, AvatarFrame, Hashtag, post_hashtags, UserFrame
+from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants,PinnedMessage, Reaction, sanitize_html, validate_url,Hashtag, post_hashtags, Technology, Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes, idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS,Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite, channel_members
 
-# ------------------------------
-# Планы подписки
-# ------------------------------
-PLANS = {
-    'week':    {'name': 'Неделя',   'price': 69,   'days': 7},
-    'month':   {'name': 'Месяц',    'price': 199,  'days': 30},
-    'year':    {'name': 'Год',      'price': 999,  'days': 365},
-    'forever': {'name': 'Навсегда', 'price': 2999, 'days': 0},
-}
-SUBSCRIPTION_PLANS = PLANS  # алиас
+
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    raise RuntimeError(
+        "SECRET_KEY is not set! Generate: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+    )
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','mp4','webm','ogg','mov','pdf','doc','docx','txt'}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+app.config['SECRET_KEY'] = _secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///social_media.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SECURE'] = False
+app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -53,7 +54,6 @@ db.init_app(app)
 import re as _re
 
 def extract_and_link_hashtags(text, post_obj=None):
-    """Находит #хештеги в тексте, сохраняет в БД, возвращает текст без изменений."""
     if not text:
         return text
     tags = set(_re.findall(r'#([\w\u0400-\u04ff]+)', text, _re.UNICODE))
@@ -71,15 +71,10 @@ def extract_and_link_hashtags(text, post_obj=None):
     return text
 
 
-# ------------------------------
-# Шифрование (отключено)
-# ------------------------------
 def encrypt_text(text): return text
 def decrypt_text(encrypted): return encrypted
 
-# ------------------------------
-# Проверка файлов
-# ------------------------------
+
 def get_file_type(filepath):
     with open(filepath, 'rb') as f:
         header = f.read(12)
@@ -87,7 +82,7 @@ def get_file_type(filepath):
     if header[:8] == b'\x89PNG\r\n\x1a\n': return 'image/png'
     if header[:6] in (b'GIF87a', b'GIF89a'): return 'image/gif'
     if header[:4] == b'RIFF' and header[8:12] == b'WEBP': return 'image/webp'
-    if header[:4] == b'ftyp' or header[4:8] == b'moov': return 'video/mp4'
+    if header[4:8] == b'ftyp' or (len(header) >= 8 and header[4:8] == b'moov'): return 'video/mp4'
     if header[:4] == b'\x1a\x45\xdf\xa3': return 'video/webm'
     if header[:4] == b'OggS': return 'video/ogg'
     if header[:4] == b'%PDF': return 'application/pdf'
@@ -95,11 +90,15 @@ def get_file_type(filepath):
     if header[:4] == b'PK\x03\x04': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     return 'text/plain'
 
+
 def safe_save_file(file, prefix):
-    if not file or file.filename == '': return None, None
+    if not file or file.filename == '':
+        return None, None
     ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-    if ext not in ALLOWED_EXTENSIONS: return None, None
-    filename = secure_filename(f"{prefix}_{int(datetime.utcnow().timestamp())}_{file.filename}")
+    if ext not in ALLOWED_EXTENSIONS:
+        return None, None
+    random_name = secrets.token_urlsafe(16)
+    filename = f"{random_name}.{ext}"
     temp_dir = os.path.join(UPLOAD_FOLDER, 'temp')
     os.makedirs(temp_dir, exist_ok=True)
     temp_path = os.path.join(temp_dir, filename)
@@ -143,43 +142,33 @@ limiter = Limiter(app,
 limiter.key_func = util.get_remote_address
 
 # ------------------------------
-# Безопасные заголовки
+# Talisman
 # ------------------------------
-Talisman(app, content_security_policy={
+is_production = os.environ.get('FLASK_ENV', 'development') == 'production'
+
+csp = {
     'default-src': "'self'",
     'script-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
     'style-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com",
     'font-src': "'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com",
     'img-src': "'self' https://ui-avatars.com data: blob:",
-}, force_https=False)
+}
+Talisman(app, content_security_policy=csp,
+         force_https=is_production,
+         strict_transport_security=is_production,
+         strict_transport_security_max_age=31536000 if is_production else 0,
+         session_cookie_secure=is_production,
+         force_https_permanent=is_production)
 
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # ------------------------------
-# Flask-Login и CSRF
+# Flask-Login and CSRF
 # ------------------------------
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.session_protection = "strong"
-
-def csrf_protect(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if request.method in ('POST', 'PUT', 'DELETE'):
-            token = session.get('_csrf_token')
-            if not token:
-                return jsonify({'error': 'CSRF token missing'}), 400
-            form_token = request.form.get('_csrf_token')
-            json_token = request.get_json().get('_csrf_token') if request.is_json else None
-            header_token = request.headers.get('X-CSRFToken')
-            valid = (form_token and form_token == token) or \
-                    (json_token and json_token == token) or \
-                    (header_token and header_token == token)
-            if not valid:
-                return jsonify({'error': 'CSRF token invalid'}), 400
-        return f(*args, **kwargs)
-    return decorated
 
 def generate_csrf_token():
     if '_csrf_token' not in session:
@@ -188,11 +177,14 @@ def generate_csrf_token():
 
 app.jinja_env.globals['csrf_token'] = generate_csrf_token
 app.jinja_env.globals['now'] = datetime.utcnow
-app.jinja_env.globals['datetime'] = datetime
+app.jinja_env.globals['datetime'] = datetime.utcnow
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    user = db.session.get(User, int(user_id))
+    if user and user.is_deleted:
+        return None
+    return user
 
 # ------------------------------
 # Before/After request
@@ -214,13 +206,13 @@ def before_request():
 @app.after_request
 def after_request(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
     return response
 
 # ------------------------------
-# Ошибки
+# Error handlers
 # ------------------------------
 @app.errorhandler(404)
 def not_found(e):
@@ -239,7 +231,7 @@ def favicon():
     return '', 204
 
 # ------------------------------
-# Аутентификация
+# Authentication
 # ------------------------------
 @app.route('/')
 def index():
@@ -259,6 +251,9 @@ def register():
             return redirect(url_for('register'))
         if len(username) < 3 or len(username) > 32:
             flash('Имя от 3 до 32 символов', 'error')
+            return redirect(url_for('register'))
+        if not username.replace('_', '').replace('-', '').isalnum():
+            flash('Имя может содержать только буквы, цифры, _ и -', 'error')
             return redirect(url_for('register'))
         if len(password) < 6:
             flash('Пароль минимум 6 символов', 'error')
@@ -302,6 +297,9 @@ def login():
         if user and user.is_blocked:
             flash('Ваш аккаунт заблокирован', 'error')
             return redirect(url_for('login'))
+        if user and user.is_deleted:
+            flash('Аккаунт удалён', 'error')
+            return redirect(url_for('login'))
         if user and check_password_hash(user.password_hash, password):
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
@@ -322,14 +320,14 @@ def logout():
     return redirect(url_for('index'))
 
 # ------------------------------
-# Посты и лента
+# Posts and feed
 # ------------------------------
 @app.route('/feed')
 @login_required
 def feed():
     page = request.args.get('page', 1, int)
     per_page = 20
-    posts = Post.query.options(joinedload(Post.author).joinedload(User.customization)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    posts = Post.query.options(joinedload(Post.author)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     for post in posts.items:
         post.recent_comments = post.comments.order_by(Comment.created_at.desc()).limit(5).all()
         post.content = decrypt_text(post.content)
@@ -354,7 +352,7 @@ def create_post():
     encrypted = encrypt_text(clean)
     post = Post(content=encrypted, media_url=media_url, media_type=media_type, user_id=current_user.id)
     db.session.add(post)
-    db.session.flush()  # получаем post.id
+    db.session.flush()
     extract_and_link_hashtags(clean, post)
     db.session.commit()
     flash('Пост опубликован!', 'success')
@@ -364,7 +362,7 @@ def create_post():
 @login_required
 def view_post(post_id):
     post = Post.query.get_or_404(post_id)
-    comments = post.comments.options(joinedload(Comment.author).joinedload(User.customization)).order_by(Comment.created_at.desc()).all()
+    comments = post.comments.options(joinedload(Comment.author)).order_by(Comment.created_at.desc()).all()
     post.content = decrypt_text(post.content)
     for c in comments:
         c.content = decrypt_text(c.content)
@@ -444,38 +442,20 @@ def delete_post(post_id):
     db.session.commit()
     return jsonify({'success': True})
 
-# Premium: закрепить пост на профиле
-@app.route('/post/<int:post_id>/pin', methods=['POST'])
-@login_required
-def pin_post(post_id):
-    if not current_user.is_premium_active():
-        return jsonify({'error': 'Только для премиум-подписчиков'}), 403
-    post = Post.query.get_or_404(post_id)
-    if post.user_id != current_user.id:
-        return jsonify({'error': 'Нет прав'}), 403
-    # Снять закрепление со старых
-    Post.query.filter_by(user_id=current_user.id, is_pinned=True).update({'is_pinned': False})
-    post.is_pinned = True
-    db.session.commit()
-    return jsonify({'success': True})
-
 # ------------------------------
-# Профиль
+# Profile
 # ------------------------------
 @app.route('/user/<username>')
 @login_required
 def profile(username):
-    user = User.query.filter_by(username=username).first_or_404()
+    user = User.query.filter_by(username=username, is_deleted=False).first_or_404()
     page = request.args.get('page', 1, int)
     per_page = 20
-    posts = Post.query.filter_by(user_id=user.id).options(joinedload(Post.author).joinedload(User.customization)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    posts = Post.query.filter_by(user_id=user.id).options(joinedload(Post.author)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     for p in posts.items:
         p.content = decrypt_text(p.content)
     is_following = Follow.query.filter_by(follower_id=current_user.id, followed_id=user.id).first() is not None
-    pinned_post = Post.query.filter_by(user_id=user.id, is_pinned=True).first()
-    if pinned_post:
-        pinned_post.content = decrypt_text(pinned_post.content)
-    return render_template('profile.html', profile_user=user, posts=posts, is_following=is_following, pinned_post=pinned_post)
+    return render_template('profile.html', profile_user=user, posts=posts, is_following=is_following)
 
 @app.route('/upload_avatar', methods=['POST'])
 @login_required
@@ -497,35 +477,51 @@ def upload_avatar():
 def update_profile():
     bio = request.form.get('bio', '').strip()
     location = request.form.get('location', '').strip()
-    website = request.form.get('website', '').strip()
+    website = validate_url(request.form.get('website', '').strip())
+    github_username = request.form.get('github_username', '').strip()
+    developer_role = request.form.get('developer_role', '').strip() or None
+    if developer_role and developer_role not in DEVELOPER_ROLES:
+        developer_role = None
     current_user.bio = sanitize_html(bio)
     current_user.location = sanitize_html(location)
-    current_user.website = sanitize_html(website)
-    # Premium: обновление статуса
-    if current_user.is_premium_active():
-        status_emoji = request.form.get('status_emoji', '').strip()
-        status_text = request.form.get('status_text', '').strip()
-        cust = current_user.customization
-        if not cust:
-            cust = UserCustomization(user_id=current_user.id)
-            db.session.add(cust)
-        cust.status_emoji = status_emoji[:10] if status_emoji else None
-        cust.status_text = status_text[:80] if status_text else None
+    current_user.website = website
+    current_user.github_username = github_username[:39] if github_username else None
+    current_user.developer_role = developer_role
     db.session.commit()
     flash('Профиль обновлён', 'success')
     return redirect(url_for('profile', username=current_user.username))
 
+@app.route('/profile/edit', methods=['GET', 'POST'])
+@login_required
+def profile_edit():
+    technologies = Technology.query.order_by(Technology.name).all()
+    user_tech_ids = {t.id for t in current_user.tech_stack.all()}
+    if request.method == 'POST':
+        bio = request.form.get('bio', '').strip()
+        location = request.form.get('location', '').strip()
+        website = validate_url(request.form.get('website', '').strip())
+        github_username = request.form.get('github_username', '').strip()
+        developer_role = request.form.get('developer_role', '').strip() or None
+        if developer_role and developer_role not in DEVELOPER_ROLES:
+            developer_role = None
+        current_user.bio = sanitize_html(bio)
+        current_user.location = sanitize_html(location)
+        current_user.website = website
+        current_user.github_username = github_username[:39] if github_username else None
+        current_user.developer_role = developer_role
+        selected_techs = request.form.getlist('technologies')
+        current_user.tech_stack = Technology.query.filter(Technology.id.in_(selected_techs)).all() if selected_techs else []
+        db.session.commit()
+        flash('Профиль обновлён', 'success')
+        return redirect(url_for('profile', username=current_user.username))
+    return render_template('profile_edit.html', technologies=technologies,
+                           user_tech_ids=user_tech_ids, developer_roles=DEVELOPER_ROLES,
+                           skill_levels=SKILL_LEVELS)
+
 @app.route('/delete_account', methods=['POST'])
 @login_required
 def delete_account():
-    user = current_user
-    user.username = "Аккаунт удален"
-    user.avatar = "https://ui-avatars.com/api/?background=gray&name=Deleted"
-    user.bio = ""
-    user.location = ""
-    user.website = ""
-    user.email = f"deleted_{user.id}@deleted.com"
-    user.is_active = False
+    current_user.anonymize()
     db.session.commit()
     logout_user()
     flash('Аккаунт удалён', 'success')
@@ -534,7 +530,7 @@ def delete_account():
 @app.route('/user/<username>/follow', methods=['POST'])
 @login_required
 def follow_user(username):
-    user = User.query.filter_by(username=username).first_or_404()
+    user = User.query.filter_by(username=username, is_deleted=False).first_or_404()
     if user.id == current_user.id:
         return jsonify({'error': 'Cannot follow yourself'}), 400
     follow = Follow.query.filter_by(follower_id=current_user.id, followed_id=user.id).first()
@@ -567,62 +563,652 @@ def notifications():
     db.session.commit()
     return render_template('notifications.html', notifications=notifs)
 
-
 @app.route('/api/notifications/poll')
 @login_required
 def poll_notifications():
-    """
-    Лёгкий polling для "toast" уведомлений.
-    Возвращает непрочитанные уведомления (по умолчанию только type='message'),
-    помечая их прочитанными, чтобы не показывать повторно.
-    """
     only_type = request.args.get('type', 'message').strip()
     limit = request.args.get('limit', 5, type=int)
     after_id = request.args.get('after_id', type=int)
-
     q = Notification.query.filter_by(user_id=current_user.id, read=False)
     if only_type:
         q = q.filter(Notification.type == only_type)
     if after_id:
         q = q.filter(Notification.id > after_id)
     items = q.order_by(Notification.id.asc()).limit(max(1, min(limit, 20))).all()
-
     result = []
     max_id = after_id or 0
     for n in items:
         max_id = max(max_id, n.id)
         result.append({
-            'id': n.id,
-            'type': n.type,
-            'content': n.content,
-            'link': n.link or '',
-            'created_at': n.created_at.isoformat()
+            'id': n.id, 'type': n.type, 'content': n.content,
+            'link': n.link or '', 'created_at': n.created_at.isoformat()
         })
         n.read = True
     if items:
         db.session.commit()
-
     return jsonify({'items': result, 'max_id': max_id})
 
+# ------------------------------
+# Search
+# ------------------------------
 @app.route('/search')
 @login_required
 def search():
-    q = request.args.get('q', '').strip()
-    if not q:
-        return render_template('search.html', users=[], posts=[])
-    users = User.query.filter(User.username.ilike(f'%{q}%')).options(joinedload(User.customization)).limit(20).all()
-    posts = Post.query.filter(Post.content.ilike(f'%{q}%')).options(joinedload(Post.author).joinedload(User.customization)).order_by(Post.created_at.desc()).limit(20).all()
-    for p in posts:
-        p.content = decrypt_text(p.content)
-    hashtags = []
-    if q.startswith('#') or not q.startswith('@'):
-        ht_q = q.lstrip('#')
-        if ht_q:
-            hashtags = Hashtag.query.filter(Hashtag.name.ilike(f'%{ht_q}%')).order_by(Hashtag.posts_count.desc()).limit(10).all()
-    return render_template('search.html', users=users, posts=posts, query=q, hashtags=hashtags)
+    q_param = request.args.get('q', '').strip()
+    search_type = request.args.get('type', 'all')
+    if not q_param:
+        return render_template('search.html', users=[], posts=[], ideas=[], channels=[], query='', search_type='all')
+    search_param = f'%{q_param}%'
+    users, posts, ideas, channels, hashtags = [], [], [], [], []
+    if search_type in ('all', 'users'):
+        users = User.query.filter(User.username.ilike(search_param), User.is_deleted == False).limit(20).all()
+    if search_type in ('all', 'posts'):
+        posts = Post.query.filter(Post.content.ilike(search_param)).options(joinedload(Post.author)).order_by(Post.created_at.desc()).limit(20).all()
+        for p in posts:
+            p.content = decrypt_text(p.content)
+    if search_type in ('all', 'ideas'):
+        ideas = Idea.query.filter(Idea.title.ilike(search_param) | Idea.description.ilike(search_param), Idea.is_active == True).options(joinedload(Idea.author)).order_by(Idea.created_at.desc()).limit(20).all()
+    if search_type in ('all', 'channels'):
+        channels = Channel.query.filter(
+            (Channel.title.ilike(search_param)) | (Channel.description.ilike(search_param)) | (Channel.name.ilike(search_param))
+        ).order_by(Channel.created_at.desc()).limit(20).all()
+    ht_q = q_param.lstrip('#')
+    if ht_q:
+        hashtags = Hashtag.query.filter(Hashtag.name.ilike(f'%{ht_q}%')).order_by(Hashtag.posts_count.desc()).limit(10).all()
+    return render_template('search.html', users=users, posts=posts, ideas=ideas, channels=channels,
+                           query=q_param, hashtags=hashtags, search_type=search_type)
 
 # ------------------------------
-# Чаты
+# IDEAS
+# ------------------------------
+@app.route('/ideas')
+@login_required
+def ideas_feed():
+    page = request.args.get('page', 1, int)
+    per_page = 20
+    sort = request.args.get('sort', 'hot')
+    tech_filter = request.args.get('tech', '').strip()
+    role_filter = request.args.get('role', '').strip()
+    query = Idea.query.filter_by(is_active=True).options(joinedload(Idea.author))
+    if tech_filter:
+        query = query.filter(Idea.technologies.any(Technology.name == tech_filter))
+    if role_filter:
+        query = query.filter(Idea.roles_needed.any(Role.name == role_filter))
+    query = query.order_by(Idea.created_at.desc())
+    ideas = query.paginate(page=page, per_page=per_page, error_out=False)
+    technologies = Technology.query.order_by(Technology.name).all()
+    roles = Role.query.order_by(Role.name).all()
+    for idea in ideas.items:
+        idea.liked_by_user = idea.is_liked_by(current_user)
+    return render_template('ideas.html', ideas=ideas, technologies=technologies,
+                           roles=roles, sort=sort, tech_filter=tech_filter, role_filter=role_filter)
+
+@app.route('/idea/create', methods=['GET', 'POST'])
+@login_required
+def idea_create():
+    technologies = Technology.query.order_by(Technology.name).all()
+    roles = Role.query.order_by(Role.name).all()
+    if request.method == 'POST':
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        problem = request.form.get('problem', '').strip()
+        solution = request.form.get('solution', '').strip()
+        selected_techs = request.form.getlist('technologies')
+        selected_roles = request.form.getlist('roles')
+        if not title or not description:
+            flash('Название и описание обязательны', 'error')
+            return render_template('idea_create.html', technologies=technologies, roles=roles)
+        if len(title) > 200:
+            flash('Название слишком длинное', 'error')
+            return render_template('idea_create.html', technologies=technologies, roles=roles)
+        idea = Idea(
+            title=sanitize_html(title), description=sanitize_html(description),
+            problem=sanitize_html(problem) if problem else None,
+            solution=sanitize_html(solution) if solution else None,
+            author_id=current_user.id
+        )
+        db.session.add(idea)
+        db.session.flush()
+        if selected_techs:
+            techs = Technology.query.filter(Technology.id.in_(selected_techs)).all()
+            for t in techs:
+                idea.technologies.append(t)
+        if selected_roles:
+            rs = Role.query.filter(Role.id.in_(selected_roles)).all()
+            for r in rs:
+                idea.roles_needed.append(r)
+        group_chat = Chat(is_group=True, name=f"Чат идеи: {title[:50]}", admin_id=current_user.id, idea_id=idea.id)
+        db.session.add(group_chat)
+        group_chat.participants.append(current_user)
+        db.session.flush()
+        idea.chat_id = group_chat.id
+        db.session.commit()
+        flash('Идея создана! Командный чат доступен.', 'success')
+        return redirect(url_for('idea_detail', idea_id=idea.id))
+    return render_template('idea_create.html', technologies=technologies, roles=roles)
+
+@app.route('/idea/<int:idea_id>')
+@login_required
+def idea_detail(idea_id):
+    idea = Idea.query.options(
+        joinedload(Idea.author), selectinload(Idea.technologies), selectinload(Idea.roles_needed),
+    ).get_or_404(idea_id)
+    if not idea.is_active:
+        abort(404)
+    idea.liked_by_user = idea.is_liked_by(current_user)
+    idea.is_author = idea.author_id == current_user.id
+    idea.is_member = idea.is_member(current_user)
+    idea.has_pending = idea.has_pending_request(current_user)
+    pending_requests = []
+    if idea.is_author:
+        reqs = db.session.query(
+            idea_join_requests.c.user_id, idea_join_requests.c.created_at, idea_join_requests.c.status
+        ).filter_by(idea_id=idea.id, status='pending').all()
+        for r in reqs:
+            user = db.session.get(User, r.user_id)
+            if user and not user.is_deleted:
+                pending_requests.append({'user': user, 'created_at': r.created_at})
+    return render_template('idea_detail.html', idea=idea, pending_requests=pending_requests)
+
+@app.route('/idea/<int:idea_id>/like', methods=['POST'])
+@login_required
+def idea_like(idea_id):
+    idea = Idea.query.get_or_404(idea_id)
+    if not idea.is_active:
+        return jsonify({'error': 'Идея не активна'}), 404
+    existing = idea.likers.filter_by(id=current_user.id).first()
+    if existing:
+        idea.likers.remove(existing)
+        liked = False
+    else:
+        idea.likers.append(current_user)
+        liked = True
+        if idea.author_id != current_user.id:
+            notif = Notification(user_id=idea.author_id, type='like',
+                                 content=f"{current_user.username} поддержал вашу идею",
+                                 link=f"/idea/{idea_id}")
+            db.session.add(notif)
+    db.session.commit()
+    return jsonify({'liked': liked, 'count': idea.likes_count})
+
+@app.route('/idea/<int:idea_id>/join', methods=['POST'])
+@login_required
+def idea_join_request(idea_id):
+    idea = Idea.query.get_or_404(idea_id)
+    if not idea.is_active:
+        return jsonify({'error': 'Идея не активна'}), 404
+    if idea.author_id == current_user.id:
+        flash('Вы автор идеи', 'info')
+        return redirect(url_for('idea_detail', idea_id=idea_id))
+    existing = db.session.query(idea_join_requests).filter_by(
+        idea_id=idea.id, user_id=current_user.id
+    ).first()
+    if existing:
+        if existing.status == 'pending':
+            flash('Заявка уже подана', 'info')
+        elif existing.status == 'approved':
+            flash('Вы уже в группе обсуждения', 'info')
+        else:
+            flash('Ваша заявка была отклонена', 'error')
+        return redirect(url_for('idea_detail', idea_id=idea_id))
+    db.session.execute(idea_join_requests.insert().values(
+        idea_id=idea.id, user_id=current_user.id, status='pending', created_at=datetime.utcnow()
+    ))
+    db.session.commit()
+    notif = Notification(user_id=idea.author_id, type='follow',
+                         content=f"{current_user.username} хочет присоединиться к обсуждению идеи",
+                         link=f"/idea/{idea_id}")
+    db.session.add(notif)
+    db.session.commit()
+    flash('Заявка на участие отправлена!', 'success')
+    return redirect(url_for('idea_detail', idea_id=idea_id))
+
+@app.route('/idea/<int:idea_id>/join/<int:user_id>/approve', methods=['POST'])
+@login_required
+def idea_approve_join(idea_id, user_id):
+    idea = Idea.query.get_or_404(idea_id)
+    if idea.author_id != current_user.id:
+        return jsonify({'error': 'Нет прав'}), 403
+    db.session.execute(idea_join_requests.update().where(
+        idea_join_requests.c.idea_id == idea.id,
+        idea_join_requests.c.user_id == user_id,
+        idea_join_requests.c.status == 'pending'
+    ).values(status='approved'))
+    if idea.chat_id:
+        chat = db.session.get(Chat, idea.chat_id)
+        if chat:
+            user = db.session.get(User, user_id)
+            if user and user not in chat.participants:
+                chat.participants.append(user)
+    db.session.commit()
+    flash('Участник добавлен в группу', 'success')
+    return redirect(url_for('idea_detail', idea_id=idea_id))
+
+@app.route('/idea/<int:idea_id>/join/<int:user_id>/reject', methods=['POST'])
+@login_required
+def idea_reject_join(idea_id, user_id):
+    idea = Idea.query.get_or_404(idea_id)
+    if idea.author_id != current_user.id:
+        return jsonify({'error': 'Нет прав'}), 403
+    db.session.execute(idea_join_requests.update().where(
+        idea_join_requests.c.idea_id == idea.id,
+        idea_join_requests.c.user_id == user_id,
+        idea_join_requests.c.status == 'pending'
+    ).values(status='rejected'))
+    db.session.commit()
+    flash('Заявка отклонена', 'success')
+    return redirect(url_for('idea_detail', idea_id=idea_id))
+
+@app.route('/idea/<int:idea_id>/delete', methods=['POST'])
+@login_required
+def idea_delete(idea_id):
+    idea = Idea.query.get_or_404(idea_id)
+    if idea.author_id != current_user.id and current_user.role not in ('admin', 'moderator'):
+        return jsonify({'error': 'Нет прав'}), 403
+    idea.is_active = False
+    db.session.commit()
+    flash('Идея удалена', 'success')
+    return redirect(url_for('ideas_feed'))
+
+# ============================================================
+# CHANNELS
+# ============================================================
+
+@app.route('/channels')
+@login_required
+def channels_list():
+    page = request.args.get('page', 1, int)
+    per_page = 20
+    q_param = request.args.get('q', '').strip()
+    type_filter = request.args.get('type', 'all')
+    query = Channel.query
+    if q_param:
+        search_param = f'%{q_param}%'
+        query = query.filter(
+            (Channel.title.ilike(search_param)) |
+            (Channel.description.ilike(search_param)) |
+            (Channel.name.ilike(search_param))
+        )
+    if type_filter == 'public':
+        query = query.filter_by(type='public')
+    elif type_filter == 'private':
+        query = query.filter_by(type='private')
+    channels = query.order_by(Channel.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    my_channels = current_user.owned_channels.all() if current_user.is_authenticated else []
+    return render_template('channels.html', channels=channels, my_channels=my_channels,
+                           query=q_param, type_filter=type_filter)
+
+@app.route('/channel/create', methods=['GET', 'POST'])
+@login_required
+def channel_create():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip().lower()
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        channel_type = request.form.get('type', 'public')
+        if channel_type not in ('public', 'private'):
+            channel_type = 'public'
+        if not name or not title:
+            flash('Название и адрес обязательны', 'error')
+            return render_template('channel_create.html')
+        if not name.replace('_', '').replace('-', '').isalnum():
+            flash('Адрес может содержать только буквы, цифры, _ и -', 'error')
+            return render_template('channel_create.html')
+        if len(name) > 50:
+            flash('Адрес слишком длинный', 'error')
+            return render_template('channel_create.html')
+        if Channel.query.filter_by(name=name).first():
+            flash('Такой адрес уже занят', 'error')
+            return render_template('channel_create.html')
+        channel = Channel(
+            name=name, title=sanitize_html(title),
+            description=sanitize_html(description), type=channel_type,
+            owner_id=current_user.id
+        )
+        db.session.add(channel)
+        db.session.flush()
+        db.session.execute(channel_members.insert().values(
+            channel_id=channel.id, user_id=current_user.id,
+            role='admin', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+        flash('Канал создан!', 'success')
+        return redirect(url_for('channel_page', channel_name=name))
+    return render_template('channel_create.html')
+
+@app.route('/channel/<channel_name>')
+@login_required
+def channel_page(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    page = request.args.get('page', 1, int)
+    per_page = 20
+    posts = channel.posts.options(joinedload(ChannelPost.author)).order_by(ChannelPost.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    membership = channel.get_membership(current_user)
+    is_member = membership and membership.status == 'active'
+    is_admin = membership and membership.role == 'admin'
+    is_mod = membership and membership.role in ('admin', 'moderator')
+    pending_requests = []
+    if is_admin and channel.type == 'private':
+        pending_requests = db.session.query(
+            channel_members.c.user_id, channel_members.c.joined_at
+        ).filter_by(channel_id=channel.id, status='pending').all()
+    liked_post_ids = set()
+    if is_member:
+        likes = ChannelPostLike.query.filter(
+            ChannelPostLike.post_id.in_([p.id for p in posts.items]),
+            ChannelPostLike.user_id == current_user.id
+        ).all()
+        liked_post_ids = {l.post_id for l in likes}
+    return render_template('channel_page.html', channel=channel, posts=posts,
+                           membership=membership, is_member=is_member,
+                           is_admin=is_admin, is_mod=is_mod,
+                           pending_requests=pending_requests,
+                           liked_post_ids=liked_post_ids)
+
+@app.route('/channel/<channel_name>/join', methods=['POST'])
+@login_required
+def channel_join(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    existing = channel.get_membership(current_user)
+    if existing and existing.status == 'active':
+        flash('Вы уже участник', 'info')
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    if existing and existing.status == 'pending':
+        flash('Заявка уже подана', 'info')
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    if channel.type == 'public':
+        db.session.execute(channel_members.insert().values(
+            channel_id=channel.id, user_id=current_user.id,
+            role='member', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+        flash('Вы вступили в канал!', 'success')
+    else:
+        db.session.execute(channel_members.insert().values(
+            channel_id=channel.id, user_id=current_user.id,
+            role='member', status='pending', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+        flash('Заявка на вступление отправлена', 'success')
+    return redirect(url_for('channel_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/leave', methods=['POST'])
+@login_required
+def channel_leave(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    membership = channel.get_membership(current_user)
+    if not membership:
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    db.session.execute(channel_members.delete().where(
+        channel_members.c.channel_id == channel.id,
+        channel_members.c.user_id == current_user.id
+    ))
+    db.session.commit()
+    flash('Вы покинули канал', 'success')
+    return redirect(url_for('channels_list'))
+
+@app.route('/channel/<channel_name>/post', methods=['POST'])
+@login_required
+def channel_post_create(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.can_post(current_user):
+        flash('Только участники могут публиковать', 'error')
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    content = request.form.get('content', '').strip()
+    if not content:
+        flash('Пост не может быть пустым', 'error')
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    if len(content) > 10000:
+        flash('Пост слишком длинный', 'error')
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    media_url, media_type = None, None
+    if 'media' in request.files:
+        media_url, media_type = safe_save_file(request.files['media'], 'ch_post')
+    post = ChannelPost(
+        channel_id=channel.id, author_id=current_user.id,
+        content=sanitize_html(content), media_url=media_url, media_type=media_type
+    )
+    db.session.add(post)
+    db.session.commit()
+    flash('Пост опубликован!', 'success')
+    return redirect(url_for('channel_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/post/<int:post_id>/like', methods=['POST'])
+@login_required
+def channel_post_like(channel_name, post_id):
+    post = ChannelPost.query.get_or_404(post_id)
+    if post.channel_id != Channel.query.filter_by(name=channel_name).first().id:
+        return jsonify({'error': 'Not found'}), 404
+    existing = ChannelPostLike.query.filter_by(post_id=post_id, user_id=current_user.id).first()
+    if existing:
+        db.session.delete(existing)
+        post.likes_count = max(0, post.likes_count - 1)
+        liked = False
+    else:
+        db.session.add(ChannelPostLike(post_id=post_id, user_id=current_user.id))
+        post.likes_count += 1
+        liked = True
+    db.session.commit()
+    return jsonify({'liked': liked, 'count': post.likes_count})
+
+@app.route('/channel/<channel_name>/post/<int:post_id>/comment', methods=['POST'])
+@login_required
+def channel_post_comment(channel_name, post_id):
+    post = ChannelPost.query.get_or_404(post_id)
+    channel = Channel.query.filter_by(name=channel_name).first()
+    if post.channel_id != channel.id:
+        return jsonify({'error': 'Not found'}), 404
+    content = request.form.get('content', '').strip()
+    if not content or len(content) > 5000:
+        return jsonify({'error': 'Invalid content'}), 400
+    comment = ChannelPostComment(post_id=post_id, user_id=current_user.id, content=sanitize_html(content))
+    db.session.add(comment)
+    post.comments_count += 1
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'comment': {
+            'id': comment.id, 'content': sanitize_html(content),
+            'username': current_user.username, 'avatar': current_user.avatar,
+            'created_at': comment.created_at.strftime('%Y-%m-%d %H:%M')
+        }
+    })
+
+@app.route('/channel/<channel_name>/post/<int:post_id>/delete', methods=['POST'])
+@login_required
+def channel_post_delete(channel_name, post_id):
+    post = ChannelPost.query.get_or_404(post_id)
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if post.channel_id != channel.id:
+        abort(404)
+    if post.author_id != current_user.id and not channel.is_admin(current_user):
+        return jsonify({'error': 'Нет прав'}), 403
+    db.session.delete(post)
+    db.session.commit()
+    flash('Пост удалён', 'success')
+    return redirect(url_for('channel_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/edit', methods=['GET', 'POST'])
+@login_required
+def channel_edit(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_admin(current_user):
+        abort(403)
+    if request.method == 'POST':
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        channel_type = request.form.get('type', 'public')
+        if channel_type not in ('public', 'private'):
+            channel_type = 'public'
+        channel.title = sanitize_html(title)
+        channel.description = sanitize_html(description)
+        channel.type = channel_type
+        if 'avatar' in request.files:
+            url, _ = safe_save_file(request.files['avatar'], f"ch_av_{channel.id}")
+            if url:
+                channel.avatar_url = url
+        if 'cover' in request.files:
+            url, _ = safe_save_file(request.files['cover'], f"ch_cv_{channel.id}")
+            if url:
+                channel.cover_url = url
+        db.session.commit()
+        flash('Канал обновлён', 'success')
+        return redirect(url_for('channel_page', channel_name=channel_name))
+    return render_template('channel_edit.html', channel=channel)
+
+@app.route('/channel/<channel_name>/members')
+@login_required
+def channel_members_page(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.has_member(current_user):
+        abort(403)
+    is_admin = channel.is_admin(current_user)
+    members = db.session.query(
+        channel_members.c.user_id, channel_members.c.role,
+        channel_members.c.status, channel_members.c.joined_at
+    ).filter_by(channel_id=channel.id).all()
+    member_users = []
+    for m in members:
+        user = db.session.get(User, m.user_id)
+        if user and not user.is_deleted:
+            member_users.append({
+                'user': user, 'role': m.role,
+                'status': m.status, 'joined_at': m.joined_at
+            })
+    return render_template('channel_members.html', channel=channel,
+                           member_users=member_users, is_admin=is_admin)
+
+@app.route('/channel/<channel_name>/member/<int:user_id>/role', methods=['POST'])
+@login_required
+def channel_change_role(channel_name, user_id):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_admin(current_user):
+        abort(403)
+    target = db.session.get(User, user_id)
+    if not target:
+        abort(404)
+    new_role = request.form.get('role', 'member')
+    if new_role not in ('admin', 'moderator', 'member'):
+        new_role = 'member'
+    db.session.execute(channel_members.update().where(
+        channel_members.c.channel_id == channel.id,
+        channel_members.c.user_id == user_id
+    ).values(role=new_role))
+    db.session.commit()
+    flash(f'Роль {target.username} изменена на {new_role}', 'success')
+    return redirect(url_for('channel_members_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/member/<int:user_id>/ban', methods=['POST'])
+@login_required
+def channel_ban_member(channel_name, user_id):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_admin(current_user):
+        abort(403)
+    db.session.execute(channel_members.update().where(
+        channel_members.c.channel_id == channel.id,
+        channel_members.c.user_id == user_id
+    ).values(status='banned'))
+    db.session.commit()
+    flash('Пользователь заблокирован в канале', 'success')
+    return redirect(url_for('channel_members_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/member/<int:user_id>/remove', methods=['POST'])
+@login_required
+def channel_remove_member(channel_name, user_id):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_moderator(current_user):
+        abort(403)
+    db.session.execute(channel_members.delete().where(
+        channel_members.c.channel_id == channel.id,
+        channel_members.c.user_id == user_id
+    ))
+    db.session.commit()
+    flash('Пользователь удалён из канала', 'success')
+    return redirect(url_for('channel_members_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/requests/<int:user_id>/approve', methods=['POST'])
+@login_required
+def channel_approve_request(channel_name, user_id):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_admin(current_user):
+        abort(403)
+    db.session.execute(channel_members.update().where(
+        channel_members.c.channel_id == channel.id,
+        channel_members.c.user_id == user_id,
+        channel_members.c.status == 'pending'
+    ).values(status='active'))
+    db.session.commit()
+    flash('Заявка одобрена', 'success')
+    return redirect(url_for('channel_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/requests/<int:user_id>/reject', methods=['POST'])
+@login_required
+def channel_reject_request(channel_name, user_id):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_admin(current_user):
+        abort(403)
+    db.session.execute(channel_members.delete().where(
+        channel_members.c.channel_id == channel.id,
+        channel_members.c.user_id == user_id,
+        channel_members.c.status == 'pending'
+    ))
+    db.session.commit()
+    flash('Заявка отклонена', 'success')
+    return redirect(url_for('channel_page', channel_name=channel_name))
+
+@app.route('/channel/<channel_name>/invite/create', methods=['POST'])
+@login_required
+def channel_create_invite(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_moderator(current_user):
+        abort(403)
+    token = secrets.token_urlsafe(32)
+    expires_hours = request.form.get('expires_hours', 72, type=int)
+    expires_at = datetime.utcnow() + timedelta(hours=min(expires_hours, 720))
+    invite = ChannelInvite(
+        channel_id=channel.id, inviter_id=current_user.id,
+        token=token, expires_at=expires_at
+    )
+    db.session.add(invite)
+    db.session.commit()
+    invite_url = url_for('channel_accept_invite', token=token, _external=True)
+    flash(f'Пригласительная ссылка создана: {invite_url}', 'success')
+    return redirect(url_for('channel_page', channel_name=channel_name))
+
+@app.route('/channel/invite/<token>')
+@login_required
+def channel_accept_invite(token):
+    invite = ChannelInvite.query.filter_by(token=token).first_or_404()
+    if invite.used_at:
+        flash('Приглашение уже использовано', 'error')
+        return redirect(url_for('channels_list'))
+    if invite.expires_at and invite.expires_at < datetime.utcnow():
+        flash('Приглашение истекло', 'error')
+        return redirect(url_for('channels_list'))
+    channel = db.session.get(Channel, invite.channel_id)
+    if not channel:
+        abort(404)
+    existing = channel.get_membership(current_user)
+    if existing and existing.status == 'active':
+        flash('Вы уже участник', 'info')
+        return redirect(url_for('channel_page', channel_name=channel.name))
+    if existing:
+        db.session.execute(channel_members.update().where(
+            channel_members.c.channel_id == channel.id,
+            channel_members.c.user_id == current_user.id
+        ).values(status='active'))
+    else:
+        db.session.execute(channel_members.insert().values(
+            channel_id=channel.id, user_id=current_user.id,
+            role='member', status='active', joined_at=datetime.utcnow()
+        ))
+    invite.used_at = datetime.utcnow()
+    db.session.commit()
+    flash(f'Вы вступили в канал "{channel.title}"!', 'success')
+    return redirect(url_for('channel_page', channel_name=channel.name))
+
+# ------------------------------
+# Chats
 # ------------------------------
 @app.route('/chats')
 @login_required
@@ -641,17 +1227,17 @@ def create_group():
         db.session.add(chat)
         chat.participants.append(current_user)
         for uname in request.form.getlist('participants'):
-            user = User.query.filter_by(username=uname).first()
+            user = User.query.filter_by(username=uname, is_deleted=False).first()
             if user and user != current_user:
                 chat.participants.append(user)
         if 'avatar' in request.files:
-            url, _ = safe_save_file(request.files['avatar'], f"group_{int(datetime.utcnow().timestamp())}")
+            url, _ = safe_save_file(request.files['avatar'], f"group_{secrets.token_urlsafe(8)}")
             if url:
                 chat.avatar = url
         db.session.commit()
         flash('Группа создана!', 'success')
         return redirect(url_for('chats'))
-    users = User.query.filter(User.id != current_user.id).limit(50).all()
+    users = User.query.filter(User.id != current_user.id, User.is_deleted == False).limit(50).all()
     return render_template('create_group.html', users=users)
 
 @app.route('/group/<int:chat_id>/add_members', methods=['POST'])
@@ -663,7 +1249,7 @@ def add_group_members(chat_id):
     usernames = request.form.getlist('usernames')
     added = []
     for uname in usernames:
-        user = User.query.filter_by(username=uname).first()
+        user = User.query.filter_by(username=uname, is_deleted=False).first()
         if user and user not in chat.participants:
             chat.participants.append(user)
             added.append(uname)
@@ -672,7 +1258,7 @@ def add_group_members(chat_id):
     return redirect(url_for('chats', chat=chat_id))
 
 # ------------------------------
-# API Чаты
+# Chat API
 # ------------------------------
 @app.route('/api/chats')
 @login_required
@@ -683,13 +1269,11 @@ def get_chats():
         if chat.is_group:
             last = chat.last_message
             result.append({
-                'id': chat.id,
-                'username': chat.name,
+                'id': chat.id, 'username': chat.name,
                 'avatar': chat.avatar or "https://ui-avatars.com/api/?background=random&name=Group",
                 'last_message': decrypt_text(last.content)[:50] if last else '',
                 'last_time': last.created_at.strftime('%d.%m %H:%M') if last else '',
-                'unread': chat.unread_count(current_user),
-                'is_group': True
+                'unread': chat.unread_count(current_user), 'is_group': True
             })
         else:
             other = None
@@ -700,20 +1284,11 @@ def get_chats():
             if not other:
                 continue
             last = chat.last_message
-            frame_key = 'premium_gold'
-            if other.is_premium_active() and other.customization and other.customization.avatar_frame_key:
-                frame_key = other.customization.avatar_frame_key
             result.append({
-                'id': chat.id,
-                'username': other.username,
-                'avatar': other.avatar,
-                'is_premium': other.is_premium_active(),
-                'frame_path': f'/static/frames/{frame_key}.svg' if other.is_premium_active() else '',
+                'id': chat.id, 'username': other.username, 'avatar': other.avatar,
                 'last_message': decrypt_text(last.content)[:50] if last else '',
                 'last_time': last.created_at.strftime('%d.%m %H:%M') if last else '',
-                'unread': chat.unread_count(current_user),
-                'is_group': False,
-                'user_id': other.id
+                'unread': chat.unread_count(current_user), 'is_group': False, 'user_id': other.id
             })
     return jsonify(result)
 
@@ -723,7 +1298,6 @@ def get_messages(chat_id):
     chat = Chat.query.get_or_404(chat_id)
     if current_user not in chat.participants:
         return jsonify({'error': 'Access denied'}), 403
-
     after = request.args.get('after', type=float)
     if after:
         after_dt = datetime.fromtimestamp(after)
@@ -733,12 +1307,10 @@ def get_messages(chat_id):
         offset = request.args.get('offset', 0, type=int)
         messages = chat.messages.order_by(Message.created_at.desc()).offset(offset).limit(limit).all()
         messages.reverse()
-
     for msg in messages:
         if msg.sender_id != current_user.id and not msg.read_at:
             msg.mark_as_read()
     db.session.commit()
-
     result = []
     for msg in messages:
         reply_data = None
@@ -746,35 +1318,22 @@ def get_messages(chat_id):
             replied = Message.query.get(msg.reply_to_id)
             if replied:
                 reply_data = {
-                    'id': replied.id,
-                    'sender_username': replied.sender.username,
-                    'content': decrypt_text(replied.content),
-                    'media_type': replied.media_type
+                    'id': replied.id, 'sender_username': replied.sender.username,
+                    'content': decrypt_text(replied.content), 'media_type': replied.media_type
                 }
         reactions = Reaction.query.filter_by(message_id=msg.id).all()
         reaction_counts = {}
         for r in reactions:
             reaction_counts[r.reaction] = reaction_counts.get(r.reaction, 0) + 1
-        sender_fk = 'premium_gold'
-        if msg.sender.is_premium_active() and msg.sender.customization and msg.sender.customization.avatar_frame_key:
-            sender_fk = msg.sender.customization.avatar_frame_key
         result.append({
-            'id': msg.id,
-            'sender_id': msg.sender_id,
-            'sender_username': msg.sender.username,
+            'id': msg.id, 'sender_id': msg.sender_id, 'sender_username': msg.sender.username,
             'sender_avatar': msg.sender.avatar,
-            'sender_is_premium': msg.sender.is_premium_active(),
-            'sender_frame_path': f'/static/frames/{sender_fk}.svg' if msg.sender.is_premium_active() else '',
-            'content': decrypt_text(msg.content),
-            'media_url': msg.media_url,
-            'media_type': msg.media_type,
-            'created_at': msg.created_at.strftime('%H:%M'),
+            'content': decrypt_text(msg.content), 'media_url': msg.media_url,
+            'media_type': msg.media_type, 'created_at': msg.created_at.strftime('%H:%M'),
             'created_at_full': msg.created_at.timestamp(),
             'is_mine': msg.sender_id == current_user.id,
-            'is_edited': msg.is_edited,
-            'edited_at': msg.edited_at.isoformat() if msg.edited_at else None,
-            'reply_to': reply_data,
-            'read_at': msg.read_at.isoformat() if msg.read_at else None,
+            'is_edited': msg.is_edited, 'edited_at': msg.edited_at.isoformat() if msg.edited_at else None,
+            'reply_to': reply_data, 'read_at': msg.read_at.isoformat() if msg.read_at else None,
             'reactions': reaction_counts
         })
     return jsonify(result)
@@ -788,7 +1347,7 @@ def send_message(chat_id):
     content = request.form.get('content', '').strip()
     media_url, media_type = None, None
     if 'media' in request.files:
-        media_url, media_type = safe_save_file(request.files['media'], f"msg_{current_user.id}")
+        media_url, media_type = safe_save_file(request.files['media'], f"msg_{secrets.token_urlsafe(8)}")
     reply_to_id = request.form.get('reply_to', type=int)
     if not content and not media_url:
         return jsonify({'error': 'Пустое сообщение'}), 400
@@ -810,17 +1369,12 @@ def send_message(chat_id):
             db.session.add(notif)
     db.session.commit()
     return jsonify({
-        'id': msg.id,
-        'sender_id': msg.sender_id,
-        'sender_username': current_user.username,
-        'sender_avatar': current_user.avatar,
-        'content': sanitize_html(content),
-        'media_url': media_url,
-        'media_type': media_type,
+        'id': msg.id, 'sender_id': msg.sender_id, 'sender_username': current_user.username,
+        'sender_avatar': current_user.avatar, 'content': sanitize_html(content),
+        'media_url': media_url, 'media_type': media_type,
         'created_at': msg.created_at.strftime('%H:%M'),
         'created_at_full': msg.created_at.timestamp(),
-        'is_mine': True,
-        'reply_to_id': msg.reply_to_id
+        'is_mine': True, 'reply_to_id': msg.reply_to_id
     })
 
 @app.route('/api/chat/<int:chat_id>/edit/<int:message_id>', methods=['PUT'])
@@ -841,59 +1395,6 @@ def edit_message(chat_id, message_id):
     db.session.commit()
     return jsonify({'success': True, 'content': sanitize_html(new_content), 'edited_at': msg.edited_at.isoformat()})
 
-@app.route('/api/chat/<int:chat_id>/forward', methods=['POST'])
-@login_required
-def forward_messages(chat_id):
-    data = request.get_json()
-    message_ids = data.get('message_ids', [])
-    target_chat_id = data.get('target_chat_id')
-    target_chat = Chat.query.get_or_404(target_chat_id)
-    if current_user not in target_chat.participants:
-        return jsonify({'error': 'Нет доступа к целевому чату'}), 403
-    forwarded = []
-    for msg_id in message_ids:
-        original = Message.query.get(msg_id)
-        if not original or original.chat_id != chat_id:
-            continue
-        forwarded_msg = Message(content=original.content, media_url=original.media_url,
-                                media_type=original.media_type, sender_id=current_user.id,
-                                chat_id=target_chat_id)
-        db.session.add(forwarded_msg)
-        forwarded.append(forwarded_msg.id)
-    target_chat.updated_at = datetime.utcnow()
-    db.session.commit()
-    return jsonify({'forwarded_ids': forwarded})
-
-@app.route('/api/chat/<int:chat_id>/pin/<int:message_id>', methods=['POST'])
-@login_required
-def pin_message(chat_id, message_id):
-    chat = Chat.query.get_or_404(chat_id)
-    if chat.is_group and chat.admin_id != current_user.id:
-        return jsonify({'error': 'Только админ может закреплять'}), 403
-    msg = Message.query.get_or_404(message_id)
-    if msg.chat_id != chat_id:
-        return jsonify({'error': 'Сообщение не принадлежит чату'}), 400
-    existing = PinnedMessage.query.filter_by(chat_id=chat_id, message_id=message_id).first()
-    if existing:
-        return jsonify({'error': 'Уже закреплено'}), 400
-    pin = PinnedMessage(chat_id=chat_id, message_id=message_id, pinned_by_id=current_user.id)
-    db.session.add(pin)
-    db.session.commit()
-    return jsonify({'success': True})
-
-@app.route('/api/chat/<int:chat_id>/unpin/<int:message_id>', methods=['DELETE'])
-@login_required
-def unpin_message(chat_id, message_id):
-    chat = Chat.query.get_or_404(chat_id)
-    if chat.is_group and chat.admin_id != current_user.id:
-        return jsonify({'error': 'Только админ может откреплять'}), 403
-    pin = PinnedMessage.query.filter_by(chat_id=chat_id, message_id=message_id).first()
-    if not pin:
-        return jsonify({'error': 'Не закреплено'}), 404
-    db.session.delete(pin)
-    db.session.commit()
-    return jsonify({'success': True})
-
 @app.route('/api/chat/<int:chat_id>/delete_message/<int:message_id>', methods=['DELETE'])
 @login_required
 def delete_message(chat_id, message_id):
@@ -909,7 +1410,7 @@ def delete_message(chat_id, message_id):
 @login_required
 def create_chat():
     username = request.form.get('username', '').strip()
-    other = User.query.filter_by(username=username).first()
+    other = User.query.filter_by(username=username, is_deleted=False).first()
     if not other:
         return jsonify({'error': 'User not found'}), 404
     if other.id == current_user.id:
@@ -958,9 +1459,6 @@ def leave_group(chat_id):
     db.session.commit()
     return jsonify({'success': True})
 
-# ------------------------------
-# API группы
-# ------------------------------
 @app.route('/api/group/<int:chat_id>/members')
 @login_required
 def get_group_members(chat_id):
@@ -969,29 +1467,6 @@ def get_group_members(chat_id):
         return jsonify({'error': 'Access denied'}), 403
     members = [{'id': u.id, 'username': u.username, 'avatar': u.avatar, 'is_admin': (u.id == chat.admin_id)} for u in chat.participants]
     return jsonify({'members': members, 'current_user_id': current_user.id, 'admin_id': chat.admin_id})
-
-@app.route('/api/group/<int:chat_id>/members_list')
-@login_required
-def get_group_members_list(chat_id):
-    chat = Chat.query.get_or_404(chat_id)
-    if not chat.is_group or current_user not in chat.participants:
-        return jsonify({'error': 'Access denied'}), 403
-    members = [{'id': u.id, 'username': u.username, 'avatar': u.avatar} for u in chat.participants]
-    return jsonify({'members': members})
-
-@app.route('/api/group/<int:chat_id>/make_admin', methods=['POST'])
-@login_required
-def make_group_admin(chat_id):
-    chat = Chat.query.get_or_404(chat_id)
-    if not chat.is_group or chat.admin_id != current_user.id:
-        return jsonify({'error': 'Forbidden'}), 403
-    data = request.get_json()
-    user = User.query.get(data.get('user_id'))
-    if not user or user not in chat.participants:
-        return jsonify({'error': 'User not in group'}), 404
-    chat.admin_id = user.id
-    db.session.commit()
-    return jsonify({'success': True})
 
 @app.route('/api/group/<int:chat_id>/remove_member', methods=['POST'])
 @login_required
@@ -1009,40 +1484,40 @@ def remove_group_member(chat_id):
     db.session.commit()
     return jsonify({'success': True})
 
-# ------------------------------
-# API поиск пользователей
-# ------------------------------
 @app.route('/api/users/search')
 @login_required
 def search_users():
-    q = request.args.get('q', '').strip()
-    if len(q) < 2:
+    q_param = request.args.get('q', '').strip()
+    if len(q_param) < 2:
         return jsonify([])
-    users = User.query.filter(User.username.ilike(f'%{q}%'), User.id != current_user.id).limit(10).all()
+    search_param = f'%{q_param}%'
+    users = User.query.filter(
+        User.username.ilike(search_param), User.id != current_user.id, User.is_deleted == False
+    ).limit(10).all()
     return jsonify([{'id': u.id, 'username': u.username, 'avatar': u.avatar} for u in users])
 
 @app.route('/api/users/search_for_group')
 @login_required
 def search_users_for_group():
-    q = request.args.get('q', '').strip()
+    q_param = request.args.get('q', '').strip()
     chat_id = request.args.get('chat_id', type=int)
-    if len(q) < 2:
+    if len(q_param) < 2:
         return jsonify([])
-    query = User.query.filter(User.username.ilike(f'%{q}%'), User.id != current_user.id)
+    search_param = f'%{q_param}%'
+    query = User.query.filter(
+        User.username.ilike(search_param), User.id != current_user.id, User.is_deleted == False
+    )
     if chat_id:
         query = query.filter(~User.chats.any(id=chat_id))
     users = query.limit(20).all()
     return jsonify([{'id': u.id, 'username': u.username, 'avatar': u.avatar} for u in users])
 
-# ------------------------------
-# API реакции и статус
-# ------------------------------
 @app.route('/api/message/<int:message_id>/react', methods=['POST'])
 @login_required
 def add_reaction(message_id):
     data = request.get_json()
     reaction = data.get('reaction')
-    if reaction not in ['👍', '❤️', '😂', '😮', '😢', '😡']:
+    if reaction not in ['\U0001f44d', '\u2764\ufe0f', '\U0001f602', '\U0001f62e', '\U0001f622', '\U0001f621']:
         return jsonify({'error': 'Invalid reaction'}), 400
     existing = Reaction.query.filter_by(user_id=current_user.id, message_id=message_id).first()
     if existing:
@@ -1051,8 +1526,7 @@ def add_reaction(message_id):
         else:
             existing.reaction = reaction
     else:
-        reaction_obj = Reaction(user_id=current_user.id, message_id=message_id, reaction=reaction)
-        db.session.add(reaction_obj)
+        db.session.add(Reaction(user_id=current_user.id, message_id=message_id, reaction=reaction))
     db.session.commit()
     reactions = Reaction.query.filter_by(message_id=message_id).all()
     reaction_counts = {}
@@ -1074,15 +1548,37 @@ def chat_info(chat_id):
     if current_user not in chat.participants:
         return jsonify({'error': 'Access denied'}), 403
     return jsonify({
-        'is_group': chat.is_group,
-        'is_admin': chat.is_admin(current_user) if chat.is_group else False,
-        'name': chat.name,
-        'avatar': chat.avatar,
-        'description': chat.description
+        'is_group': chat.is_group, 'is_admin': chat.is_admin(current_user) if chat.is_group else False,
+        'name': chat.name, 'avatar': chat.avatar, 'description': chat.description
     })
 
+@app.route('/api/github/<username>')
+@login_required
+def github_repos(username):
+    import urllib.request, json
+    gh_user = User.query.filter_by(github_username=username, is_deleted=False).first()
+    if not gh_user:
+        return jsonify({'error': 'GitHub username not set'}), 404
+    try:
+        url = f"https://api.github.com/users/{username}/repos?sort=updated&per_page=10"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Svyaz-App'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            repos = json.loads(resp.read().decode())
+        result = []
+        for r in repos:
+            result.append({
+                'name': r['name'], 'description': r.get('description', ''),
+                'language': r.get('language', ''), 'stars': r.get('stargazers_count', 0),
+                'forks': r.get('forks_count', 0), 'url': r['html_url'],
+                'updated_at': r.get('updated_at', '')
+            })
+        return jsonify({'repos': result, 'username': username})
+    except Exception as e:
+        logger.error(f"GitHub API error: {e}")
+        return jsonify({'error': 'Failed to fetch repos'}), 502
+
 # ------------------------------
-# Админские функции
+# Admin
 # ------------------------------
 @app.route('/admin/block_user/<int:user_id>', methods=['POST'])
 @login_required
@@ -1093,16 +1589,6 @@ def block_user(user_id):
     if user.id == current_user.id:
         return jsonify({'error': 'Нельзя заблокировать себя'}), 400
     user.is_blocked = True
-    db.session.commit()
-    return jsonify({'success': True})
-
-@app.route('/admin/delete_user_post/<int:post_id>', methods=['DELETE'])
-@login_required
-def admin_delete_post(post_id):
-    if current_user.role not in ('admin', 'moderator'):
-        return jsonify({'error': 'Нет прав'}), 403
-    post = Post.query.get_or_404(post_id)
-    db.session.delete(post)
     db.session.commit()
     return jsonify({'success': True})
 
@@ -1122,323 +1608,33 @@ def set_user_role(user_id):
     db.session.commit()
     return jsonify({'success': True, 'new_role': new_role})
 
-@app.route('/admin/transfer_admin/<int:user_id>', methods=['POST'])
-@login_required
-def transfer_admin(user_id):
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Нет прав'}), 403
-    target_user = User.query.get_or_404(user_id)
-    if target_user.id == current_user.id:
-        return jsonify({'error': 'Нельзя передать права самому себе'}), 400
-    current_user.role = 'default'
-    target_user.role = 'admin'
-    db.session.commit()
-    return jsonify({'success': True})
-
 # ------------------------------
-# Премиум: покупка и настройка
+# Files
 # ------------------------------
-@app.route('/premium')
-@app.route('/subscription')
+@app.route('/uploads/<folder>/<filename>')
 @login_required
-def premium_page():
-    return render_template('premium.html', plans=PLANS)
-
-@app.route('/buy_premium', methods=['POST'])
-@login_required
-def buy_premium():
-    plan_key = request.form.get('plan')
-    if plan_key not in PLANS:
-        flash('Неверный тариф', 'error')
-        return redirect(url_for('premium_page'))
-    plan = PLANS[plan_key]
-    now = datetime.utcnow()
-    current_expires = current_user.premium_expires_at
-    if plan['days'] == 0:
-        new_expires = datetime.max
-    else:
-        if current_expires and current_expires > now:
-            new_expires = current_expires + timedelta(days=plan['days'])
-        else:
-            new_expires = now + timedelta(days=plan['days'])
-    current_user.premium_expires_at = new_expires
-    # Создаём кастомизацию если нет
-    cust = current_user.customization
-    if not cust:
-        cust = UserCustomization(user_id=current_user.id)
-        db.session.add(cust)
-        db.session.flush()
-    # Устанавливаем дефолтную рамку если ещё нет
-    if not cust.avatar_frame_key or cust.avatar_frame_key == 'premium_ring':
-        cust.avatar_frame_key = 'premium_gold'
-    db.session.commit()
-    flash(f'Подписка «{plan["name"]}» активирована! 🎉', 'success')
-    return redirect(url_for('profile', username=current_user.username))
-
-@app.route('/admin/manage_premium/<int:user_id>', methods=['POST'])
-@login_required
-def admin_manage_premium(user_id):
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Нет прав'}), 403
-    user = User.query.get_or_404(user_id)
-    action = request.form.get('action')
-    if action == 'give_forever':
-        user.premium_expires_at = datetime.max
-    elif action == 'give_month':
-        user.premium_expires_at = datetime.utcnow() + timedelta(days=30)
-    elif action == 'give_year':
-        user.premium_expires_at = datetime.utcnow() + timedelta(days=365)
-    elif action == 'remove':
-        user.premium_expires_at = None
-    else:
-        return jsonify({'error': 'Неизвестное действие'}), 400
-    if not user.customization and user.premium_expires_at:
-        cust = UserCustomization(user_id=user.id)
-        db.session.add(cust)
-    db.session.commit()
-    return jsonify({'success': True})
-
-@app.route('/save_customization', methods=['POST'])
-@login_required
-def save_customization():
-    if not current_user.is_premium_active():
-        flash('Только для премиум-подписчиков', 'error')
-        return redirect(url_for('profile', username=current_user.username))
-    cust = current_user.customization
-    if not cust:
-        cust = UserCustomization(user_id=current_user.id)
-        db.session.add(cust)
-    # Только фон профиля (картинка)
-    bg_type = request.form.get('profile_background_type', 'none')
-    cust.profile_background_type = bg_type
-    if bg_type == 'none':
-        cust.profile_background_url = None
-    if 'profile_background' in request.files:
-        file = request.files['profile_background']
-        if file and file.filename:
-            url, _ = safe_save_file(file, f"bg_{current_user.id}")
-            if url:
-                cust.profile_background_url = url
-                cust.profile_background_type = 'image'
-    db.session.commit()
-    flash('Настройки сохранены', 'success')
-    return redirect(url_for('profile', username=current_user.username))
-
-@app.route('/api/customization')
-@login_required
-def get_customization():
-    if not current_user.is_premium_active() or not current_user.customization:
-        return jsonify({})
-    cust = current_user.customization
-    return jsonify({
-        'profile_background_type': cust.profile_background_type,
-        'profile_background_url': cust.profile_background_url,
-        'profile_background_gradient': cust.profile_background_gradient,
-        'message_style': cust.message_style,
-        'post_style': cust.post_style,
-        'avatar_border_style': cust.avatar_border_style,
-        'avatar_border_color': cust.avatar_border_color,
-        'chat_theme': cust.chat_theme,
-        'font_style': cust.font_style,
-        'status_emoji': cust.status_emoji,
-        'status_text': cust.status_text,
-        'post_style_gradient': getattr(cust, 'post_style_gradient', None),
-        'message_style_gradient': getattr(cust, 'message_style_gradient', None),
-    })
-
-# Premium: обновить статус
-@app.route('/api/premium/status', methods=['POST'])
-@login_required
-def update_premium_status():
-    if not current_user.is_premium_active():
-        return jsonify({'error': 'Только для премиум'}), 403
-    data = request.get_json()
-    cust = current_user.customization
-    if not cust:
-        cust = UserCustomization(user_id=current_user.id)
-        db.session.add(cust)
-    cust.status_emoji = (data.get('emoji', '') or '')[:10]
-    cust.status_text = (data.get('text', '') or '')[:80]
-    db.session.commit()
-    return jsonify({'success': True})
-
-# ------------------------------
-# Файлы
-# ------------------------------
-@app.route('/uploads/<path:filepath>')
-@login_required
-def download_file(filepath):
-    # Windows-safe: normalize slashes and build absolute path
-    upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
-    # Join safely using os.path
-    parts = [p for p in filepath.replace('\\', '/').split('/') if p and p != '..']
-    full = os.path.abspath(os.path.join(upload_dir, *parts))
-    # Security: must stay inside uploads dir
-    if not full.startswith(upload_dir):
+def download_file(folder, filename):
+    allowed_folders = {'images', 'videos', 'files', 'avatars', 'group_avatars'}
+    if folder not in allowed_folders:
         abort(403)
-    if not os.path.isfile(full):
+    clean_folder = secure_filename(folder)
+    clean_filename = secure_filename(filename)
+    if not clean_folder or not clean_filename:
+        abort(403)
+    upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
+    folder_path = os.path.join(upload_dir, clean_folder)
+    if not os.path.isdir(folder_path):
         abort(404)
-    return send_file(full)
-
-
-# ============================================================
-# МАРКЕТ РАМОК
-# ============================================================
-RARITY_ORDER = {'common':0,'rare':1,'epic':2,'legendary':3}
-RARITY_LABELS = {'common':'Обычная','rare':'Редкая','epic':'Эпическая','legendary':'Легендарная'}
-RARITY_COLORS = {'common':'#94a3b8','rare':'#3b82f6','epic':'#8b5cf6','legendary':'#f59e0b'}
-
-@app.route('/market')
-@login_required
-def market():
-    frames = AvatarFrame.query.filter_by(is_active=True).order_by(AvatarFrame.price.asc()).all()
-    owned_keys = {uf.frame_key for uf in current_user.frames.all()}
-    current_key = current_user.customization.avatar_frame_key if current_user.customization else 'premium_gold'
-    return render_template('market.html', frames=frames, owned_keys=owned_keys,
-                           current_key=current_key, rarity_labels=RARITY_LABELS,
-                           rarity_colors=RARITY_COLORS)
-
-@app.route('/market/buy/<frame_key>', methods=['POST'])
-@login_required
-def buy_frame(frame_key):
-    frame = AvatarFrame.query.filter_by(key=frame_key, is_active=True).first_or_404()
-    # Уже куплена?
-    if UserFrame.query.filter_by(user_id=current_user.id, frame_key=frame_key).first():
-        flash('Эта рамка уже у тебя есть!', 'info')
-        return redirect(url_for('market'))
-    # Бесплатная — только для premium
-    if frame.price == 0:
-        if not current_user.is_premium_active():
-            flash('Эта рамка только для Premium пользователей', 'error')
-            return redirect(url_for('market'))
-    else:
-        # Платная — нужен premium
-        if not current_user.is_premium_active():
-            flash('Для покупки рамок нужен Premium', 'error')
-            return redirect(url_for('market'))
-        # Здесь будет оплата (демо-режим)
-        flash(f'Демо: рамка «{frame.name}» добавлена бесплатно (оплата не реализована)', 'info')
-
-    uf = UserFrame(user_id=current_user.id, frame_key=frame_key, price_paid=frame.price)
-    db.session.add(uf)
-    frame.owners_count = (frame.owners_count or 0) + 1
-    db.session.commit()
-    flash(f'Рамка «{frame.name}» {frame.emoji} добавлена в коллекцию!', 'success')
-    return redirect(url_for('market'))
-
-@app.route('/market/equip/<frame_key>', methods=['POST'])
-@login_required
-def equip_frame(frame_key):
-    # Проверяем что рамка есть у пользователя или она бесплатная для premium
-    frame = AvatarFrame.query.filter_by(key=frame_key, is_active=True).first_or_404()
-    owned = UserFrame.query.filter_by(user_id=current_user.id, frame_key=frame_key).first()
-    if not owned and not (frame.price == 0 and current_user.is_premium_active()):
-        return jsonify({'error': 'Рамка не в коллекции'}), 403
-
-    cust = current_user.customization
-    if not cust:
-        cust = UserCustomization(user_id=current_user.id)
-        db.session.add(cust)
-    cust.avatar_frame_key = frame_key
-    db.session.commit()
-    return jsonify({'success': True, 'frame_url': frame.image_url})
-
-@app.route('/api/market/frames')
-@login_required
-def api_market_frames():
-    frames = AvatarFrame.query.filter_by(is_active=True).all()
-    owned_keys = {uf.frame_key for uf in current_user.frames.all()}
-    current_key = current_user.customization.avatar_frame_key if current_user.customization else 'premium_gold'
-    result = []
-    for f in frames:
-        is_owned = f.key in owned_keys or (f.price == 0 and current_user.is_premium_active())
-        result.append({
-            'key': f.key, 'name': f.name, 'emoji': f.emoji,
-            'description': f.description, 'image_url': f.image_url,
-            'price': f.price, 'rarity': f.rarity,
-            'rarity_label': RARITY_LABELS.get(f.rarity, f.rarity),
-            'rarity_color': RARITY_COLORS.get(f.rarity, '#94a3b8'),
-            'is_owned': is_owned, 'is_equipped': f.key == current_key,
-            'owners_count': f.owners_count or 0,
-        })
-    result.sort(key=lambda x: RARITY_ORDER.get(x['rarity'], 0))
-    return jsonify(result)
+    file_path = os.path.join(folder_path, clean_filename)
+    if not os.path.isfile(file_path):
+        abort(404)
+    if not os.path.abspath(file_path).startswith(upload_dir):
+        abort(403)
+    return send_from_directory(folder_path, clean_filename)
 
 # ------------------------------
-# Запуск
+# Hashtags
 # ------------------------------
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-
-        # ===== ДОБАВЛЯЕМ НЕДОСТАЮЩИЕ КОЛОНКИ И ТАБЛИЦЫ РАМОК =====
-        try:
-            db.session.execute('ALTER TABLE user_customizations ADD COLUMN avatar_frame_key VARCHAR(50) DEFAULT "premium_ring"')
-            db.session.commit()
-        except Exception: pass
-        try:
-            db.session.execute('ALTER TABLE users ADD COLUMN current_frame VARCHAR(50) DEFAULT "premium_ring"')
-            db.session.commit()
-        except Exception: pass
-        # Создаём таблицы рамок, если их нет (модели уже добавлены в module.py)
-        db.create_all()
-        # Заполняем дефолтную рамку
-        # Инициализация рамок
-        FRAMES_DATA = [
-            dict(key='premium_gold', name='Золотая', emoji='👑',
-                 description='Анимированная золотая рамка для Premium пользователей',
-                 image_url='/static/frames/premium_gold.svg', price=0,
-                 rarity='common', is_default=True, is_active=True),
-            dict(key='neon_pulse', name='Неон', emoji='⚡',
-                 description='Электрический неоновый пульс — заметна в любой ленте',
-                 image_url='/static/frames/neon_pulse.svg', price=199,
-                 rarity='rare', is_default=False, is_active=True),
-            dict(key='galaxy', name='Галактика', emoji='🌌',
-                 description='Глубокий космос со звёздами и туманностями',
-                 image_url='/static/frames/galaxy.svg', price=299,
-                 rarity='rare', is_default=False, is_active=True),
-            dict(key='fire_ring', name='Огонь', emoji='🔥',
-                 description='Кольцо живого огня с летящими искрами',
-                 image_url='/static/frames/fire_ring.svg', price=399,
-                 rarity='epic', is_default=False, is_active=True),
-            dict(key='aurora', name='Аврора', emoji='🌈',
-                 description='Северное сияние с переливающимися цветами',
-                 image_url='/static/frames/aurora.svg', price=499,
-                 rarity='epic', is_default=False, is_active=True),
-            dict(key='diamond', name='Бриллиант', emoji='💎',
-                 description='Кристальная рамка с бликами и гранями',
-                 image_url='/static/frames/diamond.svg', price=699,
-                 rarity='legendary', is_default=False, is_active=True),
-            dict(key='sakura', name='Сакура', emoji='🌸',
-                 description='Нежные лепестки японской сакуры',
-                 image_url='/static/frames/sakura.svg', price=349,
-                 rarity='rare', is_default=False, is_active=True),
-            dict(key='cyber', name='Кибер', emoji='🤖',
-                 description='Футуристический хекс-интерфейс в стиле киберпанк',
-                 image_url='/static/frames/cyber.svg', price=599,
-                 rarity='epic', is_default=False, is_active=True),
-        ]
-        for fd in FRAMES_DATA:
-            if not AvatarFrame.query.filter_by(key=fd['key']).first():
-                db.session.add(AvatarFrame(**fd))
-        db.session.commit()
-
-        admin = User.query.filter_by(username='admin').first()
-        if admin and admin.role == 'default':
-            admin.role = 'admin'
-            db.session.commit()
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
-
-
-
-
-
-
-# Надо дописать чтобы из чата появлялась плашка с уведомлениями, у чата отсутствует прокрутка, надо залочить поле для написания сообщения
-
-# ==========================================
-# Хештеги
-# ==========================================
 @app.route('/hashtag/<tag_name>')
 @login_required
 def hashtag_feed(tag_name):
@@ -1448,12 +1644,10 @@ def hashtag_feed(tag_name):
         flash(f'Хештег #{tag_name} не найден', 'error')
         return redirect(url_for('feed'))
     page = request.args.get('page', 1, int)
-    posts = ht.posts.order_by(Post.created_at.desc()).paginate(
-        page=page, per_page=20, error_out=False)
+    posts = ht.posts.order_by(Post.created_at.desc()).paginate(page=page, per_page=20, error_out=False)
     for p in posts.items:
         p.content = decrypt_text(p.content)
     return render_template('hashtag.html', tag=ht, posts=posts)
-
 
 @app.route('/api/hashtags/trending')
 @login_required
@@ -1461,16 +1655,61 @@ def trending_hashtags():
     tags = Hashtag.query.order_by(Hashtag.posts_count.desc()).limit(15).all()
     return jsonify([{'name': t.name, 'count': t.posts_count} for t in tags])
 
-
 @app.route('/api/hashtags/search')
 @login_required
 def search_hashtags():
-    q = request.args.get('q', '').strip().lstrip('#')
-    if len(q) < 1:
+    q_param = request.args.get('q', '').strip().lstrip('#')
+    if len(q_param) < 1:
         return jsonify([])
-    tags = (Hashtag.query
-            .filter(Hashtag.name.ilike(f'%{q}%'))
-            .order_by(Hashtag.posts_count.desc())
-            .limit(10).all())
+    search_param = f'%{q_param}%'
+    tags = Hashtag.query.filter(Hashtag.name.ilike(search_param)).order_by(Hashtag.posts_count.desc()).limit(10).all()
     return jsonify([{'name': t.name, 'count': t.posts_count} for t in tags])
 
+# ------------------------------
+# Seed data
+# ------------------------------
+def seed_default_data():
+    default_techs = [
+        ('Python', 'backend'), ('JavaScript', 'frontend'), ('TypeScript', 'frontend'),
+        ('React', 'frontend'), ('Vue', 'frontend'), ('Angular', 'frontend'),
+        ('Flask', 'backend'), ('Django', 'backend'), ('FastAPI', 'backend'),
+        ('Node.js', 'backend'), ('Go', 'backend'), ('Rust', 'backend'),
+        ('Java', 'backend'), ('C#', 'backend'), ('PHP', 'backend'),
+        ('PostgreSQL', 'database'), ('MySQL', 'database'), ('MongoDB', 'database'),
+        ('Redis', 'database'), ('Docker', 'devops'), ('Kubernetes', 'devops'),
+        ('AWS', 'devops'), ('Linux', 'devops'), ('Git', 'devops'),
+        ('Machine Learning', 'ml'), ('TensorFlow', 'ml'), ('PyTorch', 'ml'),
+        ('Data Science', 'ml'), ('NLP', 'ml'), ('Computer Vision', 'ml'),
+        ('Figma', 'design'), ('UI/UX', 'design'),
+        ('Swift', 'mobile'), ('Kotlin', 'mobile'), ('Flutter', 'mobile'),
+        ('SQL', 'database'), ('GraphQL', 'backend'), ('REST API', 'backend'),
+    ]
+    for name, cat in default_techs:
+        if not Technology.query.filter_by(name=name).first():
+            db.session.add(Technology(name=name, category=cat))
+    default_roles = [
+        ('backend', 'Backend-разработчик', 'fa-server'),
+        ('frontend', 'Frontend-разработчик', 'fa-code'),
+        ('fullstack', 'Fullstack-разработчик', 'fa-layer-group'),
+        ('ml', 'ML-инженер', 'fa-brain'),
+        ('devops', 'DevOps-инженер', 'fa-cogs'),
+        ('designer', 'Дизайнер', 'fa-palette'),
+        ('pm', 'Project Manager', 'fa-tasks'),
+    ]
+    for name, label, icon in default_roles:
+        if not Role.query.filter_by(name=name).first():
+            db.session.add(Role(name=name, label=label, icon=icon))
+    db.session.commit()
+
+# ------------------------------
+# Start
+# ------------------------------
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+        seed_default_data()
+        admin = User.query.filter_by(username='admin').first()
+        if admin and admin.role == 'default':
+            admin.role = 'admin'
+            db.session.commit()
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

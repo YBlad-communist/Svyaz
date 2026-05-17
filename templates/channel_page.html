@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}{{ channel.title }} — СвяZь{% endblock %}
+{% block content %}
+<div style="max-width:800px;margin:0 auto">
+    <!-- Cover -->
+    {% if channel.cover_url %}
+    <div style="height:160px;border-radius:var(--radius);overflow:hidden;margin-bottom:1rem">
+        <img src="{{ channel.cover_url }}" style="width:100%;height:100%;object-fit:cover">
+    </div>
+    {% endif %}
+
+    <!-- Header -->
+    <div class="card" style="margin-bottom:1rem;overflow:hidden">
+        <div style="padding:1.5rem">
+            <div style="display:flex;align-items:flex-start;gap:1rem">
+                {% if channel.avatar_url %}
+                <img src="{{ channel.avatar_url }}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--surface2)">
+                {% else %}
+                <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:1.8rem;border:3px solid var(--surface2)">{{ channel.title[0]|upper }}</div>
+                {% endif %}
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+                        <h1 style="font-weight:800;color:var(--text);margin:0;font-size:1.3rem">{{ channel.title }}</h1>
+                        {% if channel.is_verified %}<i class="fas fa-check-circle" style="color:#60a5fa;font-size:1.1rem"></i>{% endif %}
+                        <span style="font-size:0.85rem;color:var(--text3)">/{{ channel.name }}</span>
+                        {% if channel.type == 'private' %}
+                        <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(245,158,11,0.1);color:#f59e0b;font-size:0.72rem;font-weight:600"><i class="fas fa-lock" style="font-size:0.6rem"></i> Приватный</span>
+                        {% endif %}
+                    </div>
+                    {% if channel.description %}
+                    <p style="color:var(--text2);margin:0.5rem 0 0;line-height:1.5">{{ channel.description }}</p>
+                    {% endif %}
+                    <div style="display:flex;gap:1rem;margin-top:0.5rem;font-size:0.82rem;color:var(--text3)">
+                        <span><i class="fas fa-users"></i> {{ channel.member_count() }} участников</span>
+                        <span><i class="fas fa-file-alt"></i> {{ channel.posts.count() }} постов</span>
+                        <span><i class="fas fa-calendar"></i> {{ channel.created_at.strftime('%d.%m.%Y') }}</span>
+                    </div>
+                </div>
+                <div style="display:flex;gap:0.5rem;flex-shrink:0">
+                    {% if is_member %}
+                    <form method="POST" action="{{ url_for('channel_leave', channel_name=channel.name) }}">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-secondary btn-sm"><i class="fas fa-sign-out-alt"></i> Покинуть</button>
+                    </form>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('channel_join', channel_name=channel.name) }}">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            {% if channel.type == 'private' %}<i class="fas fa-user-plus"></i> Подать заявку{% else %}<i class="fas fa-user-plus"></i> Вступить{% endif %}
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if is_admin %}
+                    <a href="{{ url_for('channel_edit', channel_name=channel.name) }}" class="btn btn-secondary btn-sm"><i class="fas fa-edit"></i></a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if pending_requests %}
+        <div style="border-top:1px solid var(--border);padding:1rem 1.5rem">
+            <div style="font-weight:700;color:var(--text);margin-bottom:0.5rem"><i class="fas fa-clock" style="color:#f59e0b"></i> Заявки на вступление ({{ pending_requests|length }})</div>
+            {% for req in pending_requests %}
+            {% set req_user = req.user %}
+            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid var(--border)">
+                <img src="{{ req_user.avatar }}" style="width:32px;height:32px;border-radius:50%">
+                <span style="font-weight:600;color:var(--text)">{{ req_user.username }}</span>
+                <div style="margin-left:auto;display:flex;gap:0.4rem">
+                    <form method="POST" action="{{ url_for('channel_approve_request', channel_name=channel.name, user_id=req_user.id) }}">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-check"></i></button>
+                    </form>
+                    <form method="POST" action="{{ url_for('channel_reject_request', channel_name=channel.name, user_id=req_user.id) }}">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-times"></i></button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Actions bar -->
+    {% if is_member %}
+    <div class="card" style="margin-bottom:1rem">
+        <div style="padding:1rem">
+            <form method="POST" action="{{ url_for('channel_post_create', channel_name=channel.name) }}" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <textarea name="content" class="form-control" rows="2" placeholder="Написать пост в канал..." required></textarea>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem">
+                    <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                        <i class="fas fa-image"></i> Медиа
+                        <input type="file" name="media" accept="image/*,video/*" style="display:none">
+                    </label>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-paper-plane"></i> Опубликовать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Posts -->
+    {% if posts.items %}
+    {% for post in posts.items %}
+    <div class="card" style="margin-bottom:0.75rem">
+        <div style="padding:1rem">
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.75rem">
+                <a href="{{ url_for('profile', username=post.author.username) }}">
+                    <img src="{{ post.author.avatar }}" style="width:36px;height:36px;border-radius:50%">
+                </a>
+                <div>
+                    <a href="{{ url_for('profile', username=post.author.username) }}" style="font-weight:600;color:var(--text);text-decoration:none">{{ post.author.username }}</a>
+                    <div style="font-size:0.78rem;color:var(--text3)">{{ post.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                </div>
+                {% if is_admin or post.author_id == current_user.id %}
+                <form method="POST" action="{{ url_for('channel_post_delete', channel_name=channel.name, post_id=post.id) }}" style="margin-left:auto">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--text3)" onclick="return confirm('Удалить пост?')"><i class="fas fa-trash"></i></button>
+                </form>
+                {% endif %}
+            </div>
+            <div style="color:var(--text);line-height:1.6;margin-bottom:0.75rem">{{ post.content }}</div>
+            {% if post.media_url %}
+                {% if post.media_type == 'image' %}
+                <img src="{{ post.media_url }}" style="max-width:100%;border-radius:var(--radius-sm);margin-bottom:0.75rem" onclick="openImage(this.src)">
+                {% elif post.media_type == 'video' %}
+                <video controls style="max-width:100%;border-radius:var(--radius-sm);margin-bottom:0.75rem"><source src="{{ post.media_url }}"></video>
+                {% endif %}
+            {% endif %}
+            <div style="display:flex;gap:1rem;align-items:center">
+                <button class="btn btn-ghost btn-sm {% if post.id in liked_post_ids %}text-primary{% endif %}" onclick="likeChannelPost({{ post.id }}, this)" style="display:inline-flex;align-items:center;gap:0.3rem">
+                    <i class="fas fa-heart"></i> <span>{{ post.likes_count }}</span>
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="togglePostComments({{ post.id }})" style="display:inline-flex;align-items:center;gap:0.3rem">
+                    <i class="fas fa-comment"></i> <span>{{ post.comments_count }}</span>
+                </button>
+            </div>
+            <div id="post-comments-{{ post.id }}" style="display:none;margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
+                <div id="comments-list-{{ post.id }}"></div>
+                <form onsubmit="submitChannelComment(event, {{ post.id }})" style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                    <input type="text" class="form-control" placeholder="Написать комментарий..." id="comment-input-{{ post.id }}" style="border-radius:50px">
+                    <button type="submit" class="btn btn-primary btn-sm btn-icon"><i class="fas fa-paper-plane"></i></button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if posts.has_next or posts.has_prev %}
+    <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
+        {% if posts.has_prev %}
+        <a href="{{ url_for('channel_page', channel_name=channel.name, page=posts.prev_num) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Назад</a>
+        {% endif %}
+        {% if posts.has_next %}
+        <a href="{{ url_for('channel_page', channel_name=channel.name, page=posts.next_num) }}" class="btn btn-secondary">Далее <i class="fas fa-arrow-right"></i></a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
+        <div style="font-size:3rem;margin-bottom:1rem">📝</div>
+        <div style="font-weight:600;color:var(--text)">Постов пока нет</div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+async function likeChannelPost(postId, btn) {
+    const res = await fetch(`/channel/{{ channel.name }}/post/${postId}/like`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+        body: JSON.stringify({_csrf_token: CSRF})
+    });
+    const data = await res.json();
+    if (data.count !== undefined) {
+        btn.querySelector('span').textContent = data.count;
+        btn.classList.toggle('text-primary', data.liked);
+    }
+}
+
+function togglePostComments(postId) {
+    const el = document.getElementById(`post-comments-${postId}`);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function submitChannelComment(e, postId) {
+    e.preventDefault();
+    const input = document.getElementById(`comment-input-${postId}`);
+    const content = input.value.trim();
+    if (!content) return;
+    const res = await fetch(`/channel/{{ channel.name }}/post/${postId}/comment`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({content, _csrf_token: CSRF})
+    });
+    const data = await res.json();
+    if (data.success) {
+        input.value = '';
+        const list = document.getElementById(`comments-list-${postId}`);
+        const c = data.comment;
+        list.innerHTML += `<div style="display:flex;gap:0.5rem;padding:0.5rem 0;border-bottom:1px solid var(--border)">
+            <img src="${c.avatar}" style="width:24px;height:24px;border-radius:50%">
+            <div><a href="/user/${c.username}" style="font-weight:600;color:var(--text);font-size:0.85rem;text-decoration:none">${c.username}</a>
+            <div style="font-size:0.85rem;color:var(--text2)">${c.content}</div>
+            <div style="font-size:0.72rem;color:var(--text3)">${c.created_at}</div></div></div>`;
+    }
+}
+</script>
+{% endblock %}

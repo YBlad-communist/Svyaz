@@ -1,16 +1,5 @@
-{% macro user_avatar(user, size='md', extra_style='') %}
-{%- set sz_map = {'xs': '28px', 'sm': '36px', 'md': '48px', 'lg': '80px', 'xl': '120px'} -%}
-{%- set px = sz_map.get(size, '48px') -%}
-{%- if user.is_subscribed() -%}
-    {%- set frame_key = user.customization.avatar_frame_key if (user.customization and user.customization.avatar_frame_key) else 'premium_gold' -%}
-    <div style="position:relative;display:inline-flex;flex-shrink:0;width:{{ px }};height:{{ px }}">
-        <img src="{{ user.avatar }}" alt="{{ user.username }}"
-             style="width:100%;height:100%;border-radius:50%;object-fit:cover;{{ extra_style }}">
-        <img src="/static/frames/{{ frame_key }}.svg" alt=""
-             style="position:absolute;inset:-12%;width:124%;height:124%;pointer-events:none;z-index:2;">
-    </div>
-{%- else -%}
-    <img src="{{ user.avatar }}" class="avatar avatar-{{ size }}" alt="{{ user.username }}"
-         style="{{ extra_style }}">
-{%- endif %}
+{% macro user_avatar(user, size='md') %}
+{%- set sizes = {'xs': 24, 'sm': 32, 'md': 40, 'lg': 48, 'xl': 72} -%}
+{%- set px = sizes.get(size, 40) -%}
+<img src="{{ user.avatar }}" class="avatar avatar-{{ size }}" style="width:{{ px }}px;height:{{ px }}px" alt="{{ user.username }}">
 {% endmacro %}
