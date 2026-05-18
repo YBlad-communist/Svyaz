@@ -58,7 +58,14 @@
                 <span style="font-size:0.78rem;color:var(--text3)">{{ idea.created_at.strftime('%d.%m.%Y') }}</span>
                 <span style="margin-left:auto;font-weight:700;color:var(--danger)"><i class="fas fa-heart"></i> {{ idea.likes_count }}</span>
             </div>
-            <div style="font-weight:600;color:var(--text);margin-bottom:0.3rem">{{ idea.title }}</div>
+            <div style="font-weight:600;color:var(--text);margin-bottom:0.3rem">
+                {{ idea.title }}
+                {% if idea.project_type %}
+                <span style="display:inline-block;padding:0.1rem 0.4rem;border-radius:50px;background:rgba(245,158,11,0.12);color:#f59e0b;font-size:0.68rem;font-weight:600;vertical-align:middle;margin-left:0.4rem">
+                    {{ idea.project_type }}
+                </span>
+                {% endif %}
+            </div>
             <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">{{ idea.description[:150] }}{% if idea.description|length > 150 %}...{% endif %}</div>
         </div>
         </a>

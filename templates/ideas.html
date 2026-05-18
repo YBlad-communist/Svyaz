@@ -9,6 +9,15 @@
             <form method="GET" action="{{ url_for('ideas_feed') }}">
                 <input type="hidden" name="sort" value="{{ sort }}">
                 <div class="form-group">
+                    <label class="form-label" style="font-size:0.82rem">Тип проекта</label>
+                    <select name="type" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">Все</option>
+                        {% for key, label in project_types.items() %}
+                        <option value="{{ key }}" {% if type_filter == key %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
                     <label class="form-label" style="font-size:0.82rem">Технология</label>
                     <select name="tech" class="form-control form-control-sm" onchange="this.form.submit()">
                         <option value="">Все</option>
@@ -64,7 +73,14 @@
                 </div>
                 <div style="flex:1;min-width:0">
                     <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="text-decoration:none">
-                        <h3 style="font-weight:700;color:var(--text);margin:0 0 0.5rem;font-size:1.1rem">{{ idea.title }}</h3>
+                        <h3 style="font-weight:700;color:var(--text);margin:0 0 0.5rem;font-size:1.1rem">
+                            {{ idea.title }}
+                            {% if idea.project_type %}
+                            <span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(245,158,11,0.12);color:#f59e0b;font-size:0.7rem;font-weight:600;vertical-align:middle;margin-left:0.5rem">
+                                {{ project_types.get(idea.project_type, idea.project_type) }}
+                            </span>
+                            {% endif %}
+                        </h3>
                     </a>
                     <p style="color:var(--text2);font-size:0.9rem;margin:0 0 0.75rem;line-height:1.5">
                         {{ idea.description[:200] }}{% if idea.description|length > 200 %}...{% endif %}

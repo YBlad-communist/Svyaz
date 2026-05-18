@@ -51,7 +51,12 @@ channel_members = db.Table('channel_members',
     db.UniqueConstraint('channel_id', 'user_id', name='unique_channel_member')
 )
 
-DEVELOPER_ROLES = ['backend', 'frontend', 'fullstack', 'ml', 'devops', 'designer', 'pm']
+DEVELOPER_ROLES = [
+    'backend', 'frontend', 'fullstack', 'ml', 'devops', 'designer', 'pm',
+    'mobile', 'game-dev', 'data-engineer', 'qa', 'security', 'architect',
+    'tech-lead', 'sre', 'sysadmin', 'embedded', 'gamedesigner', '3d-artist',
+    'animator', 'sound-designer', 'narrative-designer', 'community-manager',
+]
 SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'expert']
 
 
@@ -174,6 +179,12 @@ class Role(db.Model):
     icon = db.Column(db.String(20), nullable=True)
 
 
+PROJECT_TYPES = [
+    'game', 'website', 'app', 'library', 'framework',
+    'cli', 'api', 'plugin', 'bot', 'saas',
+    'browser-ext', 'desktop', 'embedded', 'other',
+]
+
 class Idea(db.Model):
     __tablename__ = 'ideas'
     id = db.Column(db.Integer, primary_key=True)
@@ -181,10 +192,11 @@ class Idea(db.Model):
     description = db.Column(db.Text, nullable=False)
     problem = db.Column(db.Text, nullable=True)
     solution = db.Column(db.Text, nullable=True)
+    project_type = db.Column(db.String(30), nullable=True, default='other')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    chat_id = db.Column(db.Integer, db.ForeignKey('chats.id'), nullable=True)
+    chat_id = db.Column(db.Integer, db.ForeignKey('chats.id', use_alter=True), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
 
     technologies = db.relationship('Technology', secondary=idea_technologies, lazy='select', backref=db.backref('ideas', lazy='dynamic'))
@@ -253,7 +265,7 @@ class Chat(db.Model):
     avatar = db.Column(db.String(500), nullable=True)
     admin_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     description = db.Column(db.Text, nullable=True)
-    idea_id = db.Column(db.Integer, db.ForeignKey('ideas.id'), nullable=True)
+    idea_id = db.Column(db.Integer, db.ForeignKey('ideas.id', use_alter=True), nullable=True)
     messages = db.relationship('Message', backref='chat', lazy='dynamic', cascade='all, delete-orphan')
 
     def get_other_participant(self, user):
@@ -442,11 +454,55 @@ def generate_api_key(): return secrets.token_urlsafe(32)
 
 
 import html
+import re
+import nh3
+
+# Разрешённые HTML-теги для форматирования (код, списки, ссылки и т.д.)
+ALLOWED_TAGS = frozenset({
+    'b', 'i', 'u', 'strong', 'em', 'code', 'pre', 'blockquote',
+    'ul', 'ol', 'li', 'a', 'p', 'br', 'hr', 'h1', 'h2', 'h3',
+    'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'img', 'span', 'div', 'del', 'ins', 'sub', 'sup',
+})
+# Разрешённые атрибуты по тегам (без 'rel' — nh3/ammonia управляет им автоматически)
+ALLOWED_ATTRIBUTES = {
+    'a': {'href', 'title'},
+    'img': {'src', 'alt', 'title'},
+    'td': {'colspan', 'rowspan'},
+    'th': {'colspan', 'rowspan'},
+    '*': {'class'},
+}
+# Разрешённые URL-схемы
+ALLOWED_URL_SCHEMES = {'http', 'https', 'mailto'}
+
+EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+
 
 def sanitize_html(text):
+    """Санитизация HTML: разрешает безопасные теги, вырезает скрипты и опасные атрибуты."""
     if not text:
         return ''
-    return html.escape(text, quote=True)
+    return nh3.clean(
+        text,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        url_schemes=ALLOWED_URL_SCHEMES,
+    )
+
+
+def validate_email(email):
+    """Проверка формата email."""
+    if not email or len(email) > 254:
+        return False
+    return bool(EMAIL_RE.match(email))
+
+
+def validate_username(username):
+    """Проверка формата username."""
+    if not username or len(username) < 3 or len(username) > 32:
+        return False
+    return bool(USERNAME_RE.match(username))
 
 
 def validate_url(url):

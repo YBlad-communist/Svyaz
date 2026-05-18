@@ -19,7 +19,7 @@ from flask_talisman import Talisman
 import redis
 
 from database import db
-from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants,PinnedMessage, Reaction, sanitize_html, validate_url,Hashtag, post_hashtags, Technology, Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes, idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS,Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite, channel_members
+from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants,PinnedMessage, Reaction, sanitize_html, validate_url,Hashtag, post_hashtags, Technology, Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes, idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite, channel_members, validate_email, validate_username
 
 
 _secret_key = os.environ.get('SECRET_KEY')
@@ -41,7 +41,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -71,10 +70,6 @@ def extract_and_link_hashtags(text, post_obj=None):
     return text
 
 
-def encrypt_text(text): return text
-def decrypt_text(encrypted): return encrypted
-
-
 def get_file_type(filepath):
     with open(filepath, 'rb') as f:
         header = f.read(12)
@@ -91,7 +86,10 @@ def get_file_type(filepath):
     return 'text/plain'
 
 
-def safe_save_file(file, prefix):
+def safe_save_file(file, prefix, allowed_types=None):
+    """Сохраняет файл с проверкой MIME-типа.
+    allowed_types: 'image', 'video', 'file', или None (все разрешённые).
+    """
     if not file or file.filename == '':
         return None, None
     ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
@@ -111,6 +109,12 @@ def safe_save_file(file, prefix):
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ]
     if mime not in allowed_mimes:
+        os.remove(temp_path)
+        return None, None
+    if allowed_types == 'image' and not mime.startswith('image/'):
+        os.remove(temp_path)
+        return None, None
+    if allowed_types == 'video' and not mime.startswith('video/'):
         os.remove(temp_path)
         return None, None
     if mime.startswith('image/'): folder, media_type = 'images', 'image'
@@ -145,6 +149,7 @@ limiter.key_func = util.get_remote_address
 # Talisman
 # ------------------------------
 is_production = os.environ.get('FLASK_ENV', 'development') == 'production'
+app.config['SESSION_COOKIE_SECURE'] = is_production
 
 csp = {
     'default-src': "'self'",
@@ -175,6 +180,32 @@ def generate_csrf_token():
         session['_csrf_token'] = secrets.token_hex(32)
     return session['_csrf_token']
 
+def validate_csrf_token():
+    """Проверяет CSRF-токен из формы/JSON. Возвращает True если валиден."""
+    token = session.get('_csrf_token')
+    if not token:
+        return False
+    form_token = request.form.get('_csrf_token') or request.headers.get('X-CSRFToken')
+    if request.is_json:
+        data = request.get_json(silent=True)
+        if data:
+            form_token = form_token or data.get('_csrf_token')
+    return form_token is not None and secrets.compare_digest(token, form_token)
+
+def csrf_required(f):
+    """Декоратор: требует валидный CSRF-токен для POST/PUT/DELETE запросов."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if request.method in ('POST', 'PUT', 'DELETE'):
+            if not validate_csrf_token():
+                logger.warning('CSRF validation failed for %s from %s', request.path, request.remote_addr)
+                if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return jsonify({'error': 'CSRF token invalid or missing'}), 403
+                flash('Ошибка проверки безопасности (CSRF). Обновите страницу.', 'error')
+                return redirect(request.referrer or url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 app.jinja_env.globals['csrf_token'] = generate_csrf_token
 app.jinja_env.globals['now'] = datetime.utcnow
 app.jinja_env.globals['datetime'] = datetime.utcnow
@@ -194,7 +225,8 @@ def before_request():
     g.user = current_user
     if current_user.is_authenticated:
         current_user.last_activity = datetime.utcnow()
-        db.session.commit()
+        db.session.add(current_user)
+        db.session.flush()
     if redis_available and request.remote_addr:
         try:
             failed = redis_client.get(f"failed_attempts:{request.remote_addr}")
@@ -202,6 +234,25 @@ def before_request():
                 return jsonify({'error': 'Too many attempts'}), 429
         except:
             pass
+
+def run_migrations():
+    """Автоматическая миграция БД при запуске."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    columns = {col['name'] for col in inspector.get_columns('ideas')}
+    if 'project_type' not in columns:
+        logger.info('Adding project_type column to ideas table...')
+        with db.engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE ideas ADD COLUMN project_type VARCHAR(30) DEFAULT 'other'"
+            ))
+            conn.commit()
+        logger.info('Column project_type added.')
+
+@app.teardown_appcontext
+def teardown_session(exception):
+    """Гарантирует закрытие сессии БД после каждого запроса."""
+    db.session.remove()
 
 @app.after_request
 def after_request(response):
@@ -220,6 +271,21 @@ def not_found(e):
 
 @app.errorhandler(500)
 def internal_error(e):
+    db.session.rollback()
+    logger.error('Internal server error: %s', e, exc_info=True)
+    return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
+
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template('error.html', error_code=403, message="Доступ запрещён"), 403
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Глобальный обработчик — не раскрывает детали ошибок клиенту."""
+    db.session.rollback()
+    logger.error('Unhandled exception: %s', str(e), exc_info=True)
+    if request.is_json:
+        return jsonify({'error': 'Internal server error'}), 500
     return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
 
 @app.errorhandler(429)
@@ -239,6 +305,7 @@ def index():
 
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
+@csrf_required
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('feed'))
@@ -249,14 +316,17 @@ def register():
         if not username or not email or not password:
             flash('Все поля обязательны', 'error')
             return redirect(url_for('register'))
-        if len(username) < 3 or len(username) > 32:
-            flash('Имя от 3 до 32 символов', 'error')
+        if not validate_username(username):
+            flash('Имя от 3 до 32 символов: буквы, цифры, _ и -', 'error')
             return redirect(url_for('register'))
-        if not username.replace('_', '').replace('-', '').isalnum():
-            flash('Имя может содержать только буквы, цифры, _ и -', 'error')
+        if not validate_email(email):
+            flash('Некорректный email', 'error')
             return redirect(url_for('register'))
-        if len(password) < 6:
-            flash('Пароль минимум 6 символов', 'error')
+        if len(password) < 8:
+            flash('Пароль минимум 8 символов', 'error')
+            return redirect(url_for('register'))
+        if len(password) > 128:
+            flash('Пароль слишком длинный', 'error')
             return redirect(url_for('register'))
         if User.query.filter_by(username=username).first():
             flash('Пользователь уже существует', 'error')
@@ -265,7 +335,7 @@ def register():
             flash('Email уже используется', 'error')
             return redirect(url_for('register'))
         user = User(username=username, email=email,
-                    password_hash=generate_password_hash(password),
+                    password_hash=generate_password_hash(password, method='pbkdf2:sha256', salt_length=16),
                     avatar=f"https://ui-avatars.com/api/?background=random&name={username}",
                     role='default')
         db.session.add(user)
@@ -277,6 +347,7 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
+@csrf_required
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('feed'))
@@ -293,16 +364,14 @@ def login():
                     return redirect(url_for('login'))
             except:
                 pass
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter_by(username=username, is_deleted=False).first()
         if user and user.is_blocked:
             flash('Ваш аккаунт заблокирован', 'error')
-            return redirect(url_for('login'))
-        if user and user.is_deleted:
-            flash('Аккаунт удалён', 'error')
             return redirect(url_for('login'))
         if user and check_password_hash(user.password_hash, password):
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
+            db.session.add(user)
             db.session.commit()
             if redis_available:
                 try: redis_client.delete(f"login_attempts:{request.remote_addr}")
@@ -330,13 +399,12 @@ def feed():
     posts = Post.query.options(joinedload(Post.author)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     for post in posts.items:
         post.recent_comments = post.comments.order_by(Comment.created_at.desc()).limit(5).all()
-        post.content = decrypt_text(post.content)
-        for c in post.recent_comments:
-            c.content = decrypt_text(c.content)
     return render_template('feed.html', posts=posts)
 
 @app.route('/post/create', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def create_post():
     content = request.form.get('content', '').strip()
     media_url, media_type = None, None
@@ -349,29 +417,36 @@ def create_post():
         flash('Пост слишком длинный', 'error')
         return redirect(request.referrer or url_for('feed'))
     clean = sanitize_html(content)
-    encrypted = encrypt_text(clean)
-    post = Post(content=encrypted, media_url=media_url, media_type=media_type, user_id=current_user.id)
+    post = Post(content=clean, media_url=media_url, media_type=media_type, user_id=current_user.id)
     db.session.add(post)
     db.session.flush()
     extract_and_link_hashtags(clean, post)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash('Ошибка при создании поста', 'error')
+        return redirect(request.referrer or url_for('feed'))
     flash('Пост опубликован!', 'success')
     return redirect(url_for('feed'))
 
 @app.route('/post/<int:post_id>')
 @login_required
 def view_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = db.session.get(Post, post_id)
+    if not post:
+        abort(404)
     comments = post.comments.options(joinedload(Comment.author)).order_by(Comment.created_at.desc()).all()
-    post.content = decrypt_text(post.content)
-    for c in comments:
-        c.content = decrypt_text(c.content)
     return render_template('post.html', post=post, comments=comments)
 
 @app.route('/post/<int:post_id>/like', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def like_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = db.session.get(Post, post_id)
+    if not post:
+        return jsonify({'error': 'Пост не найден'}), 404
     like = Like.query.filter_by(user_id=current_user.id, post_id=post_id).first()
     if like:
         db.session.delete(like)
@@ -385,25 +460,36 @@ def like_post(post_id):
                                  content=f"{current_user.username} лайкнул ваш пост",
                                  link=f"/post/{post_id}")
             db.session.add(notif)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Ошибка сервера'}), 500
     return jsonify({'liked': liked, 'count': post.likes.count()})
 
 @app.route('/post/<int:post_id>/comment', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def add_comment(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = db.session.get(Post, post_id)
+    if not post:
+        return jsonify({'error': 'Пост не найден'}), 404
     content = request.form.get('content', '').strip()
     if not content or len(content) > 5000:
         return jsonify({'error': 'Comment empty or too long'}), 400
-    encrypted = encrypt_text(sanitize_html(content))
-    comment = Comment(content=encrypted, user_id=current_user.id, post_id=post_id)
+    comment = Comment(content=sanitize_html(content), user_id=current_user.id, post_id=post_id)
     db.session.add(comment)
     if post.user_id != current_user.id:
         notif = Notification(user_id=post.user_id, type='comment',
                              content=f"{current_user.username} прокомментировал: {content[:50]}",
                              link=f"/post/{post_id}")
         db.session.add(notif)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Ошибка сервера'}), 500
     return jsonify({
         'success': True,
         'comment': {
@@ -417,25 +503,34 @@ def add_comment(post_id):
 
 @app.route('/post/<int:post_id>/edit', methods=['PUT'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def edit_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = db.session.get(Post, post_id)
+    if not post:
+        return jsonify({'error': 'Пост не найден'}), 404
     if post.user_id != current_user.id:
         return jsonify({'error': 'Нет прав'}), 403
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Неверный формат данных'}), 400
     new_content = data.get('content', '').strip()
     if not new_content:
         return jsonify({'error': 'Содержимое не может быть пустым'}), 400
     if len(new_content) > 10000:
         return jsonify({'error': 'Слишком длинный пост'}), 400
-    post.content = encrypt_text(sanitize_html(new_content))
+    post.content = sanitize_html(new_content)
     post.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'success': True, 'content': sanitize_html(new_content)})
 
 @app.route('/post/<int:post_id>/delete', methods=['DELETE'])
 @login_required
+@csrf_required
 def delete_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = db.session.get(Post, post_id)
+    if not post:
+        return jsonify({'error': 'Пост не найден'}), 404
     if not current_user.can_delete_post(post):
         return jsonify({'error': 'Нет прав'}), 403
     db.session.delete(post)
@@ -452,18 +547,22 @@ def profile(username):
     page = request.args.get('page', 1, int)
     per_page = 20
     posts = Post.query.filter_by(user_id=user.id).options(joinedload(Post.author)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    for p in posts.items:
-        p.content = decrypt_text(p.content)
     is_following = Follow.query.filter_by(follower_id=current_user.id, followed_id=user.id).first() is not None
     return render_template('profile.html', profile_user=user, posts=posts, is_following=is_following)
 
 @app.route('/upload_avatar', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
+@csrf_required
 def upload_avatar():
     if 'avatar' not in request.files:
         flash('Файл не выбран', 'error')
         return redirect(url_for('profile', username=current_user.username))
-    url, _ = safe_save_file(request.files['avatar'], f"user_{current_user.id}")
+    file = request.files['avatar']
+    if not file or file.filename == '':
+        flash('Файл не выбран', 'error')
+        return redirect(url_for('profile', username=current_user.username))
+    url, _ = safe_save_file(file, f"user_{current_user.id}")
     if url:
         current_user.avatar = url
         db.session.commit()
@@ -474,6 +573,8 @@ def upload_avatar():
 
 @app.route('/update_profile', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def update_profile():
     bio = request.form.get('bio', '').strip()
     location = request.form.get('location', '').strip()
@@ -493,9 +594,18 @@ def update_profile():
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
 @login_required
+@csrf_required
 def profile_edit():
-    technologies = Technology.query.order_by(Technology.name).all()
+    technologies = Technology.query.order_by(Technology.category, Technology.name).all()
     user_tech_ids = {t.id for t in current_user.tech_stack.all()}
+    tech_by_category = {}
+    for t in technologies:
+        cat = t.category or 'Другое'
+        tech_by_category.setdefault(cat, []).append(t)
+    developer_roles_dict = {}
+    for r in Role.query.order_by(Role.name).all():
+        if r.name in DEVELOPER_ROLES:
+            developer_roles_dict[r.name] = r.label
     if request.method == 'POST':
         bio = request.form.get('bio', '').strip()
         location = request.form.get('location', '').strip()
@@ -514,12 +624,12 @@ def profile_edit():
         db.session.commit()
         flash('Профиль обновлён', 'success')
         return redirect(url_for('profile', username=current_user.username))
-    return render_template('profile_edit.html', technologies=technologies,
-                           user_tech_ids=user_tech_ids, developer_roles=DEVELOPER_ROLES,
-                           skill_levels=SKILL_LEVELS)
+    return render_template('profile_edit.html', tech_by_category=tech_by_category,
+                           user_tech_ids=user_tech_ids, developer_roles=developer_roles_dict)
 
 @app.route('/delete_account', methods=['POST'])
 @login_required
+@csrf_required
 def delete_account():
     current_user.anonymize()
     db.session.commit()
@@ -529,6 +639,8 @@ def delete_account():
 
 @app.route('/user/<username>/follow', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def follow_user(username):
     user = User.query.filter_by(username=username, is_deleted=False).first_or_404()
     if user.id == current_user.id:
@@ -545,7 +657,11 @@ def follow_user(username):
                              content=f"{current_user.username} подписался на вас",
                              link=f"/user/{current_user.username}")
         db.session.add(notif)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Ошибка сервера'}), 500
     return jsonify({
         'following': following,
         'followers_count': user.followers.count(),
@@ -559,7 +675,8 @@ def notifications():
     per_page = 30
     notifs = Notification.query.filter_by(user_id=current_user.id).order_by(Notification.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     for n in notifs.items:
-        n.read = True
+        if not n.read:
+            n.read = True
     db.session.commit()
     return render_template('notifications.html', notifications=notifs)
 
@@ -604,8 +721,6 @@ def search():
         users = User.query.filter(User.username.ilike(search_param), User.is_deleted == False).limit(20).all()
     if search_type in ('all', 'posts'):
         posts = Post.query.filter(Post.content.ilike(search_param)).options(joinedload(Post.author)).order_by(Post.created_at.desc()).limit(20).all()
-        for p in posts:
-            p.content = decrypt_text(p.content)
     if search_type in ('all', 'ideas'):
         ideas = Idea.query.filter(Idea.title.ilike(search_param) | Idea.description.ilike(search_param), Idea.is_active == True).options(joinedload(Idea.author)).order_by(Idea.created_at.desc()).limit(20).all()
     if search_type in ('all', 'channels'):
@@ -629,7 +744,10 @@ def ideas_feed():
     sort = request.args.get('sort', 'hot')
     tech_filter = request.args.get('tech', '').strip()
     role_filter = request.args.get('role', '').strip()
+    type_filter = request.args.get('type', '').strip()
     query = Idea.query.filter_by(is_active=True).options(joinedload(Idea.author))
+    if type_filter and type_filter in PROJECT_TYPES:
+        query = query.filter_by(project_type=type_filter)
     if tech_filter:
         query = query.filter(Idea.technologies.any(Technology.name == tech_filter))
     if role_filter:
@@ -641,59 +759,85 @@ def ideas_feed():
     for idea in ideas.items:
         idea.liked_by_user = idea.is_liked_by(current_user)
     return render_template('ideas.html', ideas=ideas, technologies=technologies,
-                           roles=roles, sort=sort, tech_filter=tech_filter, role_filter=role_filter)
+                           roles=roles, sort=sort, tech_filter=tech_filter, role_filter=role_filter,
+                           type_filter=type_filter, project_types=PROJECT_TYPE_LABELS)
+
+PROJECT_TYPE_LABELS = {
+    'game': 'Игра', 'website': 'Сайт', 'app': 'Приложение',
+    'library': 'Библиотека', 'framework': 'Фреймворк', 'cli': 'CLI-утилита',
+    'api': 'API / Сервис', 'plugin': 'Плагин', 'bot': 'Бот',
+    'saas': 'SaaS', 'browser-ext': 'Браузерное расширение',
+    'desktop': 'Десктоп', 'embedded': 'Embedded', 'other': 'Другое',
+}
 
 @app.route('/idea/create', methods=['GET', 'POST'])
 @login_required
+@limiter.limit("20 per hour")
+@csrf_required
 def idea_create():
-    technologies = Technology.query.order_by(Technology.name).all()
+    technologies = Technology.query.order_by(Technology.category, Technology.name).all()
     roles = Role.query.order_by(Role.name).all()
+    tech_by_category = {}
+    for t in technologies:
+        cat = t.category or 'Другое'
+        tech_by_category.setdefault(cat, []).append(t)
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
         description = request.form.get('description', '').strip()
-        problem = request.form.get('problem', '').strip()
-        solution = request.form.get('solution', '').strip()
+        project_type = request.form.get('project_type', 'other').strip()
         selected_techs = request.form.getlist('technologies')
         selected_roles = request.form.getlist('roles')
+        if project_type not in PROJECT_TYPES:
+            project_type = 'other'
         if not title or not description:
             flash('Название и описание обязательны', 'error')
-            return render_template('idea_create.html', technologies=technologies, roles=roles)
+            return render_template('idea_create.html', tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS)
         if len(title) > 200:
             flash('Название слишком длинное', 'error')
-            return render_template('idea_create.html', technologies=technologies, roles=roles)
-        idea = Idea(
-            title=sanitize_html(title), description=sanitize_html(description),
-            problem=sanitize_html(problem) if problem else None,
-            solution=sanitize_html(solution) if solution else None,
-            author_id=current_user.id
-        )
-        db.session.add(idea)
-        db.session.flush()
-        if selected_techs:
-            techs = Technology.query.filter(Technology.id.in_(selected_techs)).all()
-            for t in techs:
-                idea.technologies.append(t)
-        if selected_roles:
-            rs = Role.query.filter(Role.id.in_(selected_roles)).all()
-            for r in rs:
-                idea.roles_needed.append(r)
-        group_chat = Chat(is_group=True, name=f"Чат идеи: {title[:50]}", admin_id=current_user.id, idea_id=idea.id)
-        db.session.add(group_chat)
-        group_chat.participants.append(current_user)
-        db.session.flush()
-        idea.chat_id = group_chat.id
-        db.session.commit()
-        flash('Идея создана! Командный чат доступен.', 'success')
-        return redirect(url_for('idea_detail', idea_id=idea.id))
-    return render_template('idea_create.html', technologies=technologies, roles=roles)
+            return render_template('idea_create.html', tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS)
+        if len(description) > 10000:
+            flash('Описание слишком длинное', 'error')
+            return render_template('idea_create.html', tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS)
+        try:
+            idea = Idea(
+                title=sanitize_html(title), description=sanitize_html(description),
+                project_type=project_type, author_id=current_user.id
+            )
+            db.session.add(idea)
+            db.session.flush()
+            if selected_techs:
+                techs = Technology.query.filter(Technology.id.in_(selected_techs)).all()
+                for t in techs:
+                    idea.technologies.append(t)
+            if selected_roles:
+                rs = Role.query.filter(Role.id.in_(selected_roles)).all()
+                for r in rs:
+                    idea.roles_needed.append(r)
+            group_chat = Chat(is_group=True, name=f"Чат идеи: {title[:50]}", admin_id=current_user.id, idea_id=idea.id)
+            db.session.add(group_chat)
+            group_chat.participants.append(current_user)
+            db.session.flush()
+            idea.chat_id = group_chat.id
+            db.session.commit()
+            flash('Идея создана! Командный чат доступен.', 'success')
+            return redirect(url_for('idea_detail', idea_id=idea.id))
+        except Exception as e:
+            db.session.rollback()
+            logger.error('Idea create error: %s', e, exc_info=True)
+            flash('Ошибка при создании идеи', 'error')
+            return render_template('idea_create.html', tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS)
+    return render_template('idea_create.html', tech_by_category=tech_by_category,
+                           roles=roles, project_types=PROJECT_TYPE_LABELS)
 
 @app.route('/idea/<int:idea_id>')
 @login_required
 def idea_detail(idea_id):
-    idea = Idea.query.options(
-        joinedload(Idea.author), selectinload(Idea.technologies), selectinload(Idea.roles_needed),
-    ).get_or_404(idea_id)
-    if not idea.is_active:
+    idea = db.session.get(Idea, idea_id)
+    if not idea or not idea.is_active:
         abort(404)
     idea.liked_by_user = idea.is_liked_by(current_user)
     idea.is_author = idea.author_id == current_user.id
@@ -708,13 +852,16 @@ def idea_detail(idea_id):
             user = db.session.get(User, r.user_id)
             if user and not user.is_deleted:
                 pending_requests.append({'user': user, 'created_at': r.created_at})
-    return render_template('idea_detail.html', idea=idea, pending_requests=pending_requests)
+    return render_template('idea_detail.html', idea=idea, pending_requests=pending_requests,
+                           project_type_labels=PROJECT_TYPE_LABELS)
 
 @app.route('/idea/<int:idea_id>/like', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def idea_like(idea_id):
-    idea = Idea.query.get_or_404(idea_id)
-    if not idea.is_active:
+    idea = db.session.get(Idea, idea_id)
+    if not idea or not idea.is_active:
         return jsonify({'error': 'Идея не активна'}), 404
     existing = idea.likers.filter_by(id=current_user.id).first()
     if existing:
@@ -728,14 +875,20 @@ def idea_like(idea_id):
                                  content=f"{current_user.username} поддержал вашу идею",
                                  link=f"/idea/{idea_id}")
             db.session.add(notif)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Ошибка сервера'}), 500
     return jsonify({'liked': liked, 'count': idea.likes_count})
 
 @app.route('/idea/<int:idea_id>/join', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
+@csrf_required
 def idea_join_request(idea_id):
-    idea = Idea.query.get_or_404(idea_id)
-    if not idea.is_active:
+    idea = db.session.get(Idea, idea_id)
+    if not idea or not idea.is_active:
         return jsonify({'error': 'Идея не активна'}), 404
     if idea.author_id == current_user.id:
         flash('Вы автор идеи', 'info')
@@ -754,7 +907,6 @@ def idea_join_request(idea_id):
     db.session.execute(idea_join_requests.insert().values(
         idea_id=idea.id, user_id=current_user.id, status='pending', created_at=datetime.utcnow()
     ))
-    db.session.commit()
     notif = Notification(user_id=idea.author_id, type='follow',
                          content=f"{current_user.username} хочет присоединиться к обсуждению идеи",
                          link=f"/idea/{idea_id}")
@@ -765,10 +917,15 @@ def idea_join_request(idea_id):
 
 @app.route('/idea/<int:idea_id>/join/<int:user_id>/approve', methods=['POST'])
 @login_required
+@csrf_required
 def idea_approve_join(idea_id, user_id):
-    idea = Idea.query.get_or_404(idea_id)
+    idea = db.session.get(Idea, idea_id)
+    if not idea:
+        abort(404)
     if idea.author_id != current_user.id:
         return jsonify({'error': 'Нет прав'}), 403
+    if user_id == current_user.id:
+        return jsonify({'error': 'Нельзя одобрить свою заявку'}), 400
     db.session.execute(idea_join_requests.update().where(
         idea_join_requests.c.idea_id == idea.id,
         idea_join_requests.c.user_id == user_id,
@@ -786,8 +943,11 @@ def idea_approve_join(idea_id, user_id):
 
 @app.route('/idea/<int:idea_id>/join/<int:user_id>/reject', methods=['POST'])
 @login_required
+@csrf_required
 def idea_reject_join(idea_id, user_id):
-    idea = Idea.query.get_or_404(idea_id)
+    idea = db.session.get(Idea, idea_id)
+    if not idea:
+        abort(404)
     if idea.author_id != current_user.id:
         return jsonify({'error': 'Нет прав'}), 403
     db.session.execute(idea_join_requests.update().where(
@@ -801,10 +961,14 @@ def idea_reject_join(idea_id, user_id):
 
 @app.route('/idea/<int:idea_id>/delete', methods=['POST'])
 @login_required
+@csrf_required
 def idea_delete(idea_id):
-    idea = Idea.query.get_or_404(idea_id)
+    idea = db.session.get(Idea, idea_id)
+    if not idea:
+        abort(404)
     if idea.author_id != current_user.id and current_user.role not in ('admin', 'moderator'):
-        return jsonify({'error': 'Нет прав'}), 403
+        flash('Нет прав', 'error')
+        return redirect(url_for('idea_detail', idea_id=idea_id))
     idea.is_active = False
     db.session.commit()
     flash('Идея удалена', 'success')
@@ -840,6 +1004,8 @@ def channels_list():
 
 @app.route('/channel/create', methods=['GET', 'POST'])
 @login_required
+@limiter.limit("10 per hour")
+@csrf_required
 def channel_create():
     if request.method == 'POST':
         name = request.form.get('name', '').strip().lower()
@@ -880,6 +1046,12 @@ def channel_create():
 @login_required
 def channel_page(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if channel.type == 'private':
+        membership = channel.get_membership(current_user)
+        if not membership or membership.status != 'active':
+            if not channel.is_admin(current_user):
+                flash('Это приватный канал', 'error')
+                return redirect(url_for('channels_list'))
     page = request.args.get('page', 1, int)
     per_page = 20
     posts = channel.posts.options(joinedload(ChannelPost.author)).order_by(ChannelPost.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
@@ -907,6 +1079,8 @@ def channel_page(channel_name):
 
 @app.route('/channel/<channel_name>/join', methods=['POST'])
 @login_required
+@limiter.limit("20 per hour")
+@csrf_required
 def channel_join(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     existing = channel.get_membership(current_user)
@@ -934,6 +1108,7 @@ def channel_join(channel_name):
 
 @app.route('/channel/<channel_name>/leave', methods=['POST'])
 @login_required
+@csrf_required
 def channel_leave(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     membership = channel.get_membership(current_user)
@@ -949,6 +1124,8 @@ def channel_leave(channel_name):
 
 @app.route('/channel/<channel_name>/post', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def channel_post_create(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.can_post(current_user):
@@ -975,28 +1152,39 @@ def channel_post_create(channel_name):
 
 @app.route('/channel/<channel_name>/post/<int:post_id>/like', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def channel_post_like(channel_name, post_id):
-    post = ChannelPost.query.get_or_404(post_id)
-    if post.channel_id != Channel.query.filter_by(name=channel_name).first().id:
+    post = db.session.get(ChannelPost, post_id)
+    if not post:
+        return jsonify({'error': 'Not found'}), 404
+    channel = Channel.query.filter_by(name=channel_name).first()
+    if not channel or post.channel_id != channel.id:
         return jsonify({'error': 'Not found'}), 404
     existing = ChannelPostLike.query.filter_by(post_id=post_id, user_id=current_user.id).first()
     if existing:
         db.session.delete(existing)
-        post.likes_count = max(0, post.likes_count - 1)
         liked = False
     else:
         db.session.add(ChannelPostLike(post_id=post_id, user_id=current_user.id))
-        post.likes_count += 1
         liked = True
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Ошибка сервера'}), 500
     return jsonify({'liked': liked, 'count': post.likes_count})
 
 @app.route('/channel/<channel_name>/post/<int:post_id>/comment', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def channel_post_comment(channel_name, post_id):
-    post = ChannelPost.query.get_or_404(post_id)
+    post = db.session.get(ChannelPost, post_id)
+    if not post:
+        return jsonify({'error': 'Not found'}), 404
     channel = Channel.query.filter_by(name=channel_name).first()
-    if post.channel_id != channel.id:
+    if not channel or post.channel_id != channel.id:
         return jsonify({'error': 'Not found'}), 404
     content = request.form.get('content', '').strip()
     if not content or len(content) > 5000:
@@ -1004,7 +1192,11 @@ def channel_post_comment(channel_name, post_id):
     comment = ChannelPostComment(post_id=post_id, user_id=current_user.id, content=sanitize_html(content))
     db.session.add(comment)
     post.comments_count += 1
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': 'Ошибка сервера'}), 500
     return jsonify({
         'success': True,
         'comment': {
@@ -1016,8 +1208,11 @@ def channel_post_comment(channel_name, post_id):
 
 @app.route('/channel/<channel_name>/post/<int:post_id>/delete', methods=['POST'])
 @login_required
+@csrf_required
 def channel_post_delete(channel_name, post_id):
-    post = ChannelPost.query.get_or_404(post_id)
+    post = db.session.get(ChannelPost, post_id)
+    if not post:
+        abort(404)
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if post.channel_id != channel.id:
         abort(404)
@@ -1030,6 +1225,7 @@ def channel_post_delete(channel_name, post_id):
 
 @app.route('/channel/<channel_name>/edit', methods=['GET', 'POST'])
 @login_required
+@csrf_required
 def channel_edit(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_admin(current_user):
@@ -1080,6 +1276,7 @@ def channel_members_page(channel_name):
 
 @app.route('/channel/<channel_name>/member/<int:user_id>/role', methods=['POST'])
 @login_required
+@csrf_required
 def channel_change_role(channel_name, user_id):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_admin(current_user):
@@ -1100,6 +1297,7 @@ def channel_change_role(channel_name, user_id):
 
 @app.route('/channel/<channel_name>/member/<int:user_id>/ban', methods=['POST'])
 @login_required
+@csrf_required
 def channel_ban_member(channel_name, user_id):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_admin(current_user):
@@ -1114,6 +1312,7 @@ def channel_ban_member(channel_name, user_id):
 
 @app.route('/channel/<channel_name>/member/<int:user_id>/remove', methods=['POST'])
 @login_required
+@csrf_required
 def channel_remove_member(channel_name, user_id):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_moderator(current_user):
@@ -1128,6 +1327,7 @@ def channel_remove_member(channel_name, user_id):
 
 @app.route('/channel/<channel_name>/requests/<int:user_id>/approve', methods=['POST'])
 @login_required
+@csrf_required
 def channel_approve_request(channel_name, user_id):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_admin(current_user):
@@ -1143,6 +1343,7 @@ def channel_approve_request(channel_name, user_id):
 
 @app.route('/channel/<channel_name>/requests/<int:user_id>/reject', methods=['POST'])
 @login_required
+@csrf_required
 def channel_reject_request(channel_name, user_id):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_admin(current_user):
@@ -1158,12 +1359,16 @@ def channel_reject_request(channel_name, user_id):
 
 @app.route('/channel/<channel_name>/invite/create', methods=['POST'])
 @login_required
+@limiter.limit("20 per hour")
+@csrf_required
 def channel_create_invite(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.is_moderator(current_user):
         abort(403)
     token = secrets.token_urlsafe(32)
     expires_hours = request.form.get('expires_hours', 72, type=int)
+    if expires_hours < 1:
+        expires_hours = 1
     expires_at = datetime.utcnow() + timedelta(hours=min(expires_hours, 720))
     invite = ChannelInvite(
         channel_id=channel.id, inviter_id=current_user.id,
@@ -1217,6 +1422,8 @@ def chats():
 
 @app.route('/create_group', methods=['GET', 'POST'])
 @login_required
+@limiter.limit("10 per hour")
+@csrf_required
 def create_group():
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -1242,6 +1449,8 @@ def create_group():
 
 @app.route('/group/<int:chat_id>/add_members', methods=['POST'])
 @login_required
+@limiter.limit("20 per hour")
+@csrf_required
 def add_group_members(chat_id):
     chat = Chat.query.get_or_404(chat_id)
     if not chat.is_group or chat.admin_id != current_user.id:
@@ -1271,7 +1480,7 @@ def get_chats():
             result.append({
                 'id': chat.id, 'username': chat.name,
                 'avatar': chat.avatar or "https://ui-avatars.com/api/?background=random&name=Group",
-                'last_message': decrypt_text(last.content)[:50] if last else '',
+                'last_message': last.content[:50] if last else '',
                 'last_time': last.created_at.strftime('%d.%m %H:%M') if last else '',
                 'unread': chat.unread_count(current_user), 'is_group': True
             })
@@ -1286,7 +1495,7 @@ def get_chats():
             last = chat.last_message
             result.append({
                 'id': chat.id, 'username': other.username, 'avatar': other.avatar,
-                'last_message': decrypt_text(last.content)[:50] if last else '',
+                'last_message': last.content[:50] if last else '',
                 'last_time': last.created_at.strftime('%d.%m %H:%M') if last else '',
                 'unread': chat.unread_count(current_user), 'is_group': False, 'user_id': other.id
             })
@@ -1295,7 +1504,9 @@ def get_chats():
 @app.route('/api/chat/<int:chat_id>/messages')
 @login_required
 def get_messages(chat_id):
-    chat = Chat.query.get_or_404(chat_id)
+    chat = db.session.get(Chat, chat_id)
+    if not chat:
+        return jsonify({'error': 'Access denied'}), 403
     if current_user not in chat.participants:
         return jsonify({'error': 'Access denied'}), 403
     after = request.args.get('after', type=float)
@@ -1315,11 +1526,11 @@ def get_messages(chat_id):
     for msg in messages:
         reply_data = None
         if msg.reply_to_id:
-            replied = Message.query.get(msg.reply_to_id)
+            replied = db.session.get(Message, msg.reply_to_id)
             if replied:
                 reply_data = {
                     'id': replied.id, 'sender_username': replied.sender.username,
-                    'content': decrypt_text(replied.content), 'media_type': replied.media_type
+                    'content': replied.content, 'media_type': replied.media_type
                 }
         reactions = Reaction.query.filter_by(message_id=msg.id).all()
         reaction_counts = {}
@@ -1328,7 +1539,7 @@ def get_messages(chat_id):
         result.append({
             'id': msg.id, 'sender_id': msg.sender_id, 'sender_username': msg.sender.username,
             'sender_avatar': msg.sender.avatar,
-            'content': decrypt_text(msg.content), 'media_url': msg.media_url,
+            'content': msg.content, 'media_url': msg.media_url,
             'media_type': msg.media_type, 'created_at': msg.created_at.strftime('%H:%M'),
             'created_at_full': msg.created_at.timestamp(),
             'is_mine': msg.sender_id == current_user.id,
@@ -1340,8 +1551,12 @@ def get_messages(chat_id):
 
 @app.route('/api/chat/<int:chat_id>/send', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def send_message(chat_id):
-    chat = Chat.query.get_or_404(chat_id)
+    chat = db.session.get(Chat, chat_id)
+    if not chat:
+        return jsonify({'error': 'Access denied'}), 403
     if current_user not in chat.participants:
         return jsonify({'error': 'Access denied'}), 403
     content = request.form.get('content', '').strip()
@@ -1351,11 +1566,10 @@ def send_message(chat_id):
     reply_to_id = request.form.get('reply_to', type=int)
     if not content and not media_url:
         return jsonify({'error': 'Пустое сообщение'}), 400
-    encrypted = encrypt_text(sanitize_html(content))
-    msg = Message(content=encrypted, media_url=media_url, media_type=media_type,
+    msg = Message(content=sanitize_html(content), media_url=media_url, media_type=media_type,
                   sender_id=current_user.id, chat_id=chat.id)
     if reply_to_id:
-        reply_msg = Message.query.get(reply_to_id)
+        reply_msg = db.session.get(Message, reply_to_id)
         if reply_msg and reply_msg.chat_id == chat_id:
             msg.reply_to_id = reply_to_id
     db.session.add(msg)
@@ -1379,17 +1593,23 @@ def send_message(chat_id):
 
 @app.route('/api/chat/<int:chat_id>/edit/<int:message_id>', methods=['PUT'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def edit_message(chat_id, message_id):
-    msg = Message.query.get_or_404(message_id)
+    msg = db.session.get(Message, message_id)
+    if not msg:
+        return jsonify({'error': 'Сообщение не найдено'}), 404
     if msg.sender_id != current_user.id or msg.chat_id != chat_id:
         return jsonify({'error': 'Нет прав'}), 403
     if datetime.utcnow() - msg.created_at > timedelta(minutes=5):
         return jsonify({'error': 'Время редактирования истекло'}), 403
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Неверный формат данных'}), 400
     new_content = data.get('content', '').strip()
     if not new_content:
         return jsonify({'error': 'Сообщение не может быть пустым'}), 400
-    msg.content = encrypt_text(sanitize_html(new_content))
+    msg.content = sanitize_html(new_content)
     msg.is_edited = True
     msg.edited_at = datetime.utcnow()
     db.session.commit()
@@ -1397,9 +1617,14 @@ def edit_message(chat_id, message_id):
 
 @app.route('/api/chat/<int:chat_id>/delete_message/<int:message_id>', methods=['DELETE'])
 @login_required
+@csrf_required
 def delete_message(chat_id, message_id):
-    msg = Message.query.get_or_404(message_id)
-    chat = Chat.query.get_or_404(chat_id)
+    msg = db.session.get(Message, message_id)
+    if not msg:
+        return jsonify({'error': 'Сообщение не найдено'}), 404
+    chat = db.session.get(Chat, chat_id)
+    if not chat:
+        return jsonify({'error': 'Чат не найден'}), 404
     if msg.sender_id != current_user.id and not (chat.is_group and chat.admin_id == current_user.id):
         return jsonify({'error': 'Нет прав'}), 403
     db.session.delete(msg)
@@ -1408,6 +1633,8 @@ def delete_message(chat_id, message_id):
 
 @app.route('/api/chat/create', methods=['POST'])
 @login_required
+@limiter.limit("20 per hour")
+@csrf_required
 def create_chat():
     username = request.form.get('username', '').strip()
     other = User.query.filter_by(username=username, is_deleted=False).first()
@@ -1431,6 +1658,7 @@ def create_chat():
 
 @app.route('/api/chat/<int:chat_id>/delete', methods=['POST'])
 @login_required
+@csrf_required
 def delete_chat(chat_id):
     chat = Chat.query.get_or_404(chat_id)
     if chat.is_group and chat.admin_id != current_user.id:
@@ -1443,6 +1671,7 @@ def delete_chat(chat_id):
 
 @app.route('/api/chat/<int:chat_id>/leave', methods=['POST'])
 @login_required
+@csrf_required
 def leave_group(chat_id):
     chat = Chat.query.get_or_404(chat_id)
     if not chat.is_group or current_user not in chat.participants:
@@ -1470,12 +1699,17 @@ def get_group_members(chat_id):
 
 @app.route('/api/group/<int:chat_id>/remove_member', methods=['POST'])
 @login_required
+@csrf_required
 def remove_group_member(chat_id):
-    chat = Chat.query.get_or_404(chat_id)
+    chat = db.session.get(Chat, chat_id)
+    if not chat:
+        return jsonify({'error': 'Чат не найден'}), 404
     if not chat.is_group or chat.admin_id != current_user.id:
         return jsonify({'error': 'Forbidden'}), 403
-    data = request.get_json()
-    user = User.query.get(data.get('user_id'))
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Неверный формат данных'}), 400
+    user = db.session.get(User, data.get('user_id'))
     if not user or user not in chat.participants:
         return jsonify({'error': 'User not in group'}), 404
     if user.id == chat.admin_id:
@@ -1514,8 +1748,12 @@ def search_users_for_group():
 
 @app.route('/api/message/<int:message_id>/react', methods=['POST'])
 @login_required
+@limiter.limit("60 per hour")
+@csrf_required
 def add_reaction(message_id):
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Неверный формат данных'}), 400
     reaction = data.get('reaction')
     if reaction not in ['\U0001f44d', '\u2764\ufe0f', '\U0001f602', '\U0001f62e', '\U0001f622', '\U0001f621']:
         return jsonify({'error': 'Invalid reaction'}), 400
@@ -1573,8 +1811,8 @@ def github_repos(username):
                 'updated_at': r.get('updated_at', '')
             })
         return jsonify({'repos': result, 'username': username})
-    except Exception as e:
-        logger.error(f"GitHub API error: {e}")
+    except Exception:
+        logger.error("GitHub API error for user %s", username, exc_info=True)
         return jsonify({'error': 'Failed to fetch repos'}), 502
 
 # ------------------------------
@@ -1582,10 +1820,13 @@ def github_repos(username):
 # ------------------------------
 @app.route('/admin/block_user/<int:user_id>', methods=['POST'])
 @login_required
+@csrf_required
 def block_user(user_id):
     if current_user.role not in ('admin', 'moderator'):
         return jsonify({'error': 'Нет прав'}), 403
-    user = User.query.get_or_404(user_id)
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
     if user.id == current_user.id:
         return jsonify({'error': 'Нельзя заблокировать себя'}), 400
     user.is_blocked = True
@@ -1594,14 +1835,19 @@ def block_user(user_id):
 
 @app.route('/admin/set_role/<int:user_id>', methods=['POST'])
 @login_required
+@csrf_required
 def set_user_role(user_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Нет прав'}), 403
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Неверный формат данных'}), 400
     new_role = data.get('role')
     if new_role not in ['admin', 'moderator', 'betatester', 'default']:
         return jsonify({'error': 'Недопустимая роль'}), 400
-    target_user = User.query.get_or_404(user_id)
+    target_user = db.session.get(User, user_id)
+    if not target_user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
     if target_user.id == current_user.id:
         return jsonify({'error': 'Нельзя изменить свою роль'}), 400
     target_user.role = new_role
@@ -1645,8 +1891,6 @@ def hashtag_feed(tag_name):
         return redirect(url_for('feed'))
     page = request.args.get('page', 1, int)
     posts = ht.posts.order_by(Post.created_at.desc()).paginate(page=page, per_page=20, error_out=False)
-    for p in posts.items:
-        p.content = decrypt_text(p.content)
     return render_template('hashtag.html', tag=ht, posts=posts)
 
 @app.route('/api/hashtags/trending')
@@ -1670,19 +1914,75 @@ def search_hashtags():
 # ------------------------------
 def seed_default_data():
     default_techs = [
-        ('Python', 'backend'), ('JavaScript', 'frontend'), ('TypeScript', 'frontend'),
-        ('React', 'frontend'), ('Vue', 'frontend'), ('Angular', 'frontend'),
+        # Языки программирования
+        ('Python', 'language'), ('JavaScript', 'language'), ('TypeScript', 'language'),
+        ('C', 'language'), ('C++', 'language'), ('C#', 'language'),
+        ('Java', 'language'), ('Kotlin', 'language'), ('Scala', 'language'),
+        ('Go', 'language'), ('Rust', 'language'), ('Swift', 'language'),
+        ('Ruby', 'language'), ('PHP', 'language'), ('Dart', 'language'),
+        ('R', 'language'), ('Lua', 'language'), ('Perl', 'language'),
+        ('Haskell', 'language'), ('Elixir', 'language'), ('Clojure', 'language'),
+        ('Zig', 'language'), ('Nim', 'language'), ('Assembly', 'language'),
+        ('Shell', 'language'), ('SQL', 'language'), ('MATLAB', 'language'),
+        ('Groovy', 'language'), ('Objective-C', 'language'), ('F#', 'language'),
+        ('VB.NET', 'language'), ('Delphi', 'language'), ('OCaml', 'language'),
+
+        # Фреймворки и библиотеки (backend)
         ('Flask', 'backend'), ('Django', 'backend'), ('FastAPI', 'backend'),
-        ('Node.js', 'backend'), ('Go', 'backend'), ('Rust', 'backend'),
-        ('Java', 'backend'), ('C#', 'backend'), ('PHP', 'backend'),
-        ('PostgreSQL', 'database'), ('MySQL', 'database'), ('MongoDB', 'database'),
-        ('Redis', 'database'), ('Docker', 'devops'), ('Kubernetes', 'devops'),
-        ('AWS', 'devops'), ('Linux', 'devops'), ('Git', 'devops'),
-        ('Machine Learning', 'ml'), ('TensorFlow', 'ml'), ('PyTorch', 'ml'),
-        ('Data Science', 'ml'), ('NLP', 'ml'), ('Computer Vision', 'ml'),
-        ('Figma', 'design'), ('UI/UX', 'design'),
-        ('Swift', 'mobile'), ('Kotlin', 'mobile'), ('Flutter', 'mobile'),
-        ('SQL', 'database'), ('GraphQL', 'backend'), ('REST API', 'backend'),
+        ('Node.js', 'backend'), ('Express', 'backend'), ('NestJS', 'backend'),
+        ('Spring Boot', 'backend'), ('ASP.NET', 'backend'), ('Ruby on Rails', 'backend'),
+        ('Laravel', 'backend'), ('Symfony', 'backend'), ('Phoenix', 'backend'),
+        ('Actix', 'backend'), ('Gin', 'backend'), ('Fiber', 'backend'),
+        ('Echo', 'backend'), ('Tornado', 'backend'), ('Celery', 'backend'),
+        ('gRPC', 'backend'),
+
+        # Фреймворки и библиотеки (frontend)
+        ('React', 'frontend'), ('Vue', 'frontend'), ('Angular', 'frontend'),
+        ('Svelte', 'frontend'), ('Next.js', 'frontend'), ('Nuxt', 'frontend'),
+        ('jQuery', 'frontend'), ('Tailwind CSS', 'frontend'), ('Bootstrap', 'frontend'),
+        ('Webpack', 'frontend'), ('Vite', 'frontend'), ('Astro', 'frontend'),
+        ('Remix', 'frontend'), ('SolidJS', 'frontend'), ('Alpine.js', 'frontend'),
+        ('Three.js', 'frontend'), ('D3.js', 'frontend'), ('Chart.js', 'frontend'),
+
+        # Мобильная разработка
+        ('React Native', 'mobile'), ('Flutter', 'mobile'), ('SwiftUI', 'mobile'),
+        ('Jetpack Compose', 'mobile'), ('Xamarin', 'mobile'), ('Ionic', 'mobile'),
+        ('Unity', 'mobile'), ('Unreal Engine', 'mobile'), ('Godot', 'mobile'),
+
+        # Базы данных
+        ('PostgreSQL', 'database'), ('MySQL', 'database'), ('SQLite', 'database'),
+        ('MongoDB', 'database'), ('Redis', 'database'), ('MariaDB', 'database'),
+        ('Cassandra', 'database'), ('Elasticsearch', 'database'), ('Neo4j', 'database'),
+        ('DynamoDB', 'database'), ('Firebase', 'database'), ('Supabase', 'database'),
+        ('ClickHouse', 'database'), ('TimescaleDB', 'database'), ('InfluxDB', 'database'),
+
+        # DevOps и инфраструктура
+        ('Docker', 'devops'), ('Kubernetes', 'devops'), ('Terraform', 'devops'),
+        ('Ansible', 'devops'), ('CI/CD', 'devops'), ('GitHub Actions', 'devops'),
+        ('Jenkins', 'devops'), ('Nginx', 'devops'), ('Traefik', 'devops'),
+        ('AWS', 'devops'), ('GCP', 'devops'), ('Azure', 'devops'),
+        ('Linux', 'devops'), ('Git', 'devops'), ('Prometheus', 'devops'),
+        ('Grafana', 'devops'), ('Vagrant', 'devops'), ('Packer', 'devops'),
+
+        # ML / AI
+        ('Machine Learning', 'ml'), ('Deep Learning', 'ml'), ('TensorFlow', 'ml'),
+        ('PyTorch', 'ml'), ('scikit-learn', 'ml'), ('Data Science', 'ml'),
+        ('NLP', 'ml'), ('Computer Vision', 'ml'), ('OpenCV', 'ml'),
+        ('Hugging Face', 'ml'), ('LangChain', 'ml'), ('ONNX', 'ml'),
+        ('MLOps', 'ml'), ('LLM', 'ml'), ('RAG', 'ml'),
+
+        # Дизайн
+        ('Figma', 'design'), ('UI/UX', 'design'), ('Adobe XD', 'design'),
+        ('Sketch', 'design'), ('Photoshop', 'design'), ('Illustrator', 'design'),
+        ('Blender', 'design'), ('After Effects', 'design'),
+
+        # Прочие инструменты
+        ('GraphQL', 'tools'), ('REST API', 'tools'), ('WebSocket', 'tools'),
+        ('OAuth', 'tools'), ('JWT', 'tools'), ('WebRTC', 'tools'),
+        ('RabbitMQ', 'tools'), ('Kafka', 'tools'), ('Selenium', 'tools'),
+        ('Playwright', 'tools'), ('Cypress', 'tools'), ('Jest', 'tools'),
+        ('pytest', 'tools'), ('Prettier', 'tools'), ('ESLint', 'tools'),
+        ('GitLab', 'tools'), ('Jira', 'tools'), ('Notion', 'tools'),
     ]
     for name, cat in default_techs:
         if not Technology.query.filter_by(name=name).first():
@@ -1691,10 +1991,26 @@ def seed_default_data():
         ('backend', 'Backend-разработчик', 'fa-server'),
         ('frontend', 'Frontend-разработчик', 'fa-code'),
         ('fullstack', 'Fullstack-разработчик', 'fa-layer-group'),
-        ('ml', 'ML-инженер', 'fa-brain'),
+        ('ml', 'ML/AI-инженер', 'fa-brain'),
         ('devops', 'DevOps-инженер', 'fa-cogs'),
-        ('designer', 'Дизайнер', 'fa-palette'),
+        ('designer', 'UI/UX Дизайнер', 'fa-palette'),
         ('pm', 'Project Manager', 'fa-tasks'),
+        ('mobile', 'Мобильный разработчик', 'fa-mobile-alt'),
+        ('game-dev', 'Game Developer', 'fa-gamepad'),
+        ('data-engineer', 'Data Engineer', 'fa-database'),
+        ('qa', 'QA Engineer', 'fa-bug'),
+        ('security', 'Security Engineer', 'fa-shield-alt'),
+        ('architect', 'Software Architect', 'fa-sitemap'),
+        ('tech-lead', 'Tech Lead', 'fa-users-cog'),
+        ('sre', 'SRE-инженер', 'fa-heartbeat'),
+        ('sysadmin', 'Системный администратор', 'fa-terminal'),
+        ('embedded', 'Embedded-разработчик', 'fa-microchip'),
+        ('gamedesigner', 'Геймдизайнер', 'fa-dice-d20'),
+        ('3d-artist', '3D Artist', 'fa-cube'),
+        ('animator', 'Аниматор', 'fa-film'),
+        ('sound-designer', 'Sound Designer', 'fa-music'),
+        ('narrative-designer', 'Нарративный дизайнер', 'fa-book'),
+        ('community-manager', 'Community Manager', 'fa-comments'),
     ]
     for name, label, icon in default_roles:
         if not Role.query.filter_by(name=name).first():
@@ -1707,9 +2023,15 @@ def seed_default_data():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        run_migrations()
         seed_default_data()
         admin = User.query.filter_by(username='admin').first()
         if admin and admin.role == 'default':
             admin.role = 'admin'
             db.session.commit()
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+
+# Автомиграция при импорте (для gunicorn и других WSGI-серверов)
+with app.app_context():
+    db.create_all()
+    run_migrations()
