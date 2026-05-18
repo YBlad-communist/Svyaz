@@ -39,7 +39,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = _secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///social_media.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400
@@ -137,13 +137,25 @@ try:
                                db=0, decode_responses=True, socket_connect_timeout=2)
     redis_client.ping()
     redis_available = True
-except:
-    pass
+except redis.ConnectionError:
+    logger.warning('Redis connection failed, falling back to in-memory storage')
+except Exception:
+    logger.exception('Unexpected error connecting to Redis')
 
-limiter = Limiter(app,
-                  default_limits=["200 per day", "50 per hour"],
-                  storage_uri="redis://localhost:6379" if redis_available else "memory://")
-limiter.key_func = util.get_remote_address
+def get_real_ip():
+    """Извлекает реальный IP клиента с учётом X-Forwarded-For."""
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or '127.0.0.1'
+
+is_testing = os.environ.get('FLASK_ENV') == 'testing'
+limiter = Limiter(
+                  app=app,
+                  key_func=get_real_ip,
+                  default_limits=[] if is_testing else ["200 per day", "50 per hour"],
+                  storage_uri="redis://localhost:6379" if (redis_available and not is_testing) else "memory://",
+                  enabled=not is_testing)
 
 # ------------------------------
 # Talisman
@@ -153,10 +165,14 @@ app.config['SESSION_COOKIE_SECURE'] = is_production
 
 csp = {
     'default-src': "'self'",
-    'script-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
+    'script-src': "'self' 'unsafe-inline'",
     'style-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com",
     'font-src': "'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com",
     'img-src': "'self' https://ui-avatars.com data: blob:",
+    'object-src': "'none'",
+    'base-uri': "'self'",
+    'form-action': "'self'",
+    'frame-ancestors': "'none'",
 }
 Talisman(app, content_security_policy=csp,
          force_https=is_production,
@@ -227,27 +243,18 @@ def before_request():
         current_user.last_activity = datetime.utcnow()
         db.session.add(current_user)
         db.session.flush()
-    if redis_available and request.remote_addr:
+    if redis_available:
+        real_ip = get_real_ip()
         try:
-            failed = redis_client.get(f"failed_attempts:{request.remote_addr}")
-            if failed and int(failed) > 10:
-                return jsonify({'error': 'Too many attempts'}), 429
-        except:
-            pass
-
-def run_migrations():
-    """Автоматическая миграция БД при запуске."""
-    from sqlalchemy import inspect, text
-    inspector = inspect(db.engine)
-    columns = {col['name'] for col in inspector.get_columns('ideas')}
-    if 'project_type' not in columns:
-        logger.info('Adding project_type column to ideas table...')
-        with db.engine.connect() as conn:
-            conn.execute(text(
-                "ALTER TABLE ideas ADD COLUMN project_type VARCHAR(30) DEFAULT 'other'"
-            ))
-            conn.commit()
-        logger.info('Column project_type added.')
+            failed = redis_client.get(f"failed_attempts:{real_ip}")
+            if failed and int(failed) >= 5:
+                logger.warning('Brute-force lockout for IP %s (%s failed attempts)', real_ip, failed)
+                if request.is_json:
+                    return jsonify({'error': 'Too many failed attempts. Try again in 15 minutes.'}), 429
+                flash('Слишком много неудачных попыток. Попробуйте через 15 минут.', 'error')
+                return redirect(url_for('login'))
+        except Exception:
+            logger.warning('Failed to check Redis failed_attempts for %s', real_ip)
 
 @app.teardown_appcontext
 def teardown_session(exception):
@@ -354,31 +361,34 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        if redis_available:
-            ip = request.remote_addr
-            try:
-                attempts = redis_client.incr(f"login_attempts:{ip}")
-                redis_client.expire(f"login_attempts:{ip}", 300)
-                if attempts > 5:
-                    flash('Слишком много попыток, подождите 5 минут', 'error')
-                    return redirect(url_for('login'))
-            except:
-                pass
+        real_ip = get_real_ip()
+
         user = User.query.filter_by(username=username, is_deleted=False).first()
         if user and user.is_blocked:
             flash('Ваш аккаунт заблокирован', 'error')
             return redirect(url_for('login'))
+
         if user and check_password_hash(user.password_hash, password):
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
             db.session.add(user)
             db.session.commit()
             if redis_available:
-                try: redis_client.delete(f"login_attempts:{request.remote_addr}")
-                except: pass
+                try:
+                    redis_client.delete(f"failed_attempts:{real_ip}")
+                except Exception:
+                    logger.warning('Failed to clear failed attempts for %s', real_ip)
             flash('Добро пожаловать!', 'success')
             return redirect(url_for('feed'))
         else:
+            if redis_available:
+                try:
+                    failed = redis_client.incr(f"failed_attempts:{real_ip}")
+                    redis_client.expire(f"failed_attempts:{real_ip}", 900)  # 15 minutes
+                    if int(failed) >= 5:
+                        logger.warning('Brute-force threshold reached for IP %s', real_ip)
+                except Exception:
+                    logger.warning('Failed to track failed attempts for IP %s', real_ip)
             flash('Неверное имя или пароль', 'error')
     return render_template('login.html')
 
@@ -785,10 +795,16 @@ def idea_create():
         title = request.form.get('title', '').strip()
         description = request.form.get('description', '').strip()
         project_type = request.form.get('project_type', 'other').strip()
+        github_url = request.form.get('github_url', '').strip()
         selected_techs = request.form.getlist('technologies')
         selected_roles = request.form.getlist('roles')
         if project_type not in PROJECT_TYPES:
             project_type = 'other'
+        if github_url:
+            if not (github_url.startswith('http://') or github_url.startswith('https://')):
+                github_url = 'https://' + github_url
+            if 'github.com' not in github_url.lower():
+                github_url = ''
         if not title or not description:
             flash('Название и описание обязательны', 'error')
             return render_template('idea_create.html', tech_by_category=tech_by_category,
@@ -804,7 +820,8 @@ def idea_create():
         try:
             idea = Idea(
                 title=sanitize_html(title), description=sanitize_html(description),
-                project_type=project_type, author_id=current_user.id
+                project_type=project_type, author_id=current_user.id,
+                github_url=github_url or None
             )
             db.session.add(idea)
             db.session.flush()
@@ -961,18 +978,83 @@ def idea_reject_join(idea_id, user_id):
 
 @app.route('/idea/<int:idea_id>/delete', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 @csrf_required
 def idea_delete(idea_id):
     idea = db.session.get(Idea, idea_id)
-    if not idea:
+    if not idea or not idea.is_active:
         abort(404)
     if idea.author_id != current_user.id and current_user.role not in ('admin', 'moderator'):
-        flash('Нет прав', 'error')
-        return redirect(url_for('idea_detail', idea_id=idea_id))
+        abort(403)
     idea.is_active = False
     db.session.commit()
     flash('Идея удалена', 'success')
     return redirect(url_for('ideas_feed'))
+
+@app.route('/idea/<int:idea_id>/edit', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("20 per hour")
+@csrf_required
+def idea_edit(idea_id):
+    idea = db.session.get(Idea, idea_id)
+    if not idea or not idea.is_active:
+        abort(404)
+    if idea.author_id != current_user.id:
+        abort(403)
+    technologies = Technology.query.order_by(Technology.category, Technology.name).all()
+    roles = Role.query.order_by(Role.name).all()
+    tech_by_category = {}
+    for t in technologies:
+        cat = t.category or 'Другое'
+        tech_by_category.setdefault(cat, []).append(t)
+    user_tech_ids = {t.id for t in idea.technologies}
+    user_role_ids = {r.id for r in idea.roles_needed}
+    if request.method == 'POST':
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        project_type = request.form.get('project_type', 'other').strip()
+        github_url = request.form.get('github_url', '').strip()
+        selected_techs = request.form.getlist('technologies')
+        selected_roles = request.form.getlist('roles')
+        if project_type not in PROJECT_TYPES:
+            project_type = 'other'
+        if github_url:
+            if not (github_url.startswith('http://') or github_url.startswith('https://')):
+                github_url = 'https://' + github_url
+            if 'github.com' not in github_url.lower():
+                github_url = ''
+        if not title or not description:
+            flash('Название и описание обязательны', 'error')
+            return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS,
+                                   user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
+        if len(title) > 200:
+            flash('Название слишком длинное', 'error')
+            return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS,
+                                   user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
+        if len(description) > 10000:
+            flash('Описание слишком длинное', 'error')
+            return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
+                                   roles=roles, project_types=PROJECT_TYPE_LABELS,
+                                   user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
+        try:
+            idea.title = sanitize_html(title)
+            idea.description = sanitize_html(description)
+            idea.project_type = project_type
+            idea.github_url = github_url or None
+            idea.technologies = Technology.query.filter(Technology.id.in_(selected_techs)).all() if selected_techs else []
+            idea.roles_needed = Role.query.filter(Role.id.in_(selected_roles)).all() if selected_roles else []
+            db.session.commit()
+            flash('Идея обновлена!', 'success')
+            return redirect(url_for('idea_detail', idea_id=idea.id))
+        except Exception as e:
+            db.session.rollback()
+            logger.error('Idea edit error: %s', e, exc_info=True)
+            flash('Ошибка при обновлении идеи', 'error')
+    return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
+                           roles=roles, project_types=PROJECT_TYPE_LABELS,
+                           user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
 
 # ============================================================
 # CHANNELS
@@ -2020,10 +2102,60 @@ def seed_default_data():
 # ------------------------------
 # Start
 # ------------------------------
+def init_db():
+    """Инициализация БД с автодобавлением недостающих колонок."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    if not inspector.get_table_names():
+        db.create_all()
+        logger.info('Database tables created via db.create_all()')
+    else:
+        # Проверяем и добавляем недостающие колонки в ideas
+        idea_columns = {col['name'] for col in inspector.get_columns('ideas')}
+        with db.engine.connect() as conn:
+            if 'github_url' not in idea_columns:
+                conn.execute(text("ALTER TABLE ideas ADD COLUMN github_url VARCHAR(500)"))
+                conn.commit()
+                logger.info('Added github_url column to ideas table')
+            if 'is_active' not in idea_columns:
+                conn.execute(text("ALTER TABLE ideas ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+                conn.commit()
+                logger.info('Added is_active column to ideas table')
+            if 'problem' not in idea_columns:
+                conn.execute(text("ALTER TABLE ideas ADD COLUMN problem TEXT"))
+                conn.commit()
+                logger.info('Added problem column to ideas table')
+            if 'solution' not in idea_columns:
+                conn.execute(text("ALTER TABLE ideas ADD COLUMN solution TEXT"))
+                conn.commit()
+                logger.info('Added solution column to ideas table')
+        # Проверяем users
+        user_columns = {col['name'] for col in inspector.get_columns('users')}
+        with db.engine.connect() as conn:
+            if 'github_username' not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN github_username VARCHAR(39)"))
+                conn.commit()
+                logger.info('Added github_username column to users table')
+            if 'developer_role' not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN developer_role VARCHAR(20)"))
+                conn.commit()
+                logger.info('Added developer_role column to users table')
+            if 'verified' not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN verified BOOLEAN DEFAULT 0"))
+                conn.commit()
+                logger.info('Added verified column to users table')
+            if 'is_deleted' not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+                conn.commit()
+                logger.info('Added is_deleted column to users table')
+            if 'deleted_at' not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN deleted_at DATETIME"))
+                conn.commit()
+                logger.info('Added deleted_at column to users table')
+
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()
-        run_migrations()
+        init_db()
         seed_default_data()
         admin = User.query.filter_by(username='admin').first()
         if admin and admin.role == 'default':
@@ -2031,7 +2163,6 @@ if __name__ == '__main__':
             db.session.commit()
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 
-# Автомиграция при импорте (для gunicorn и других WSGI-серверов)
+# Автоинициализация для WSGI-серверов (gunicorn и др.)
 with app.app_context():
-    db.create_all()
-    run_migrations()
+    init_db()

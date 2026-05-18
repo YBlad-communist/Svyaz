@@ -290,7 +290,7 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
             <div class="chat-input-row">
                 <label class="btn btn-ghost btn-icon" for="mediaUpload" title="Прикрепить файл" style="flex-shrink:0">
                     <i class="fas fa-paperclip"></i>
-                    <input type="file" id="mediaUpload" style="display:none" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt">
+                    <input type="file" id="mediaUpload" style="display:none" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" onchange="if(!validateFileSize(this))return;attachFile(this.files[0])">
                 </label>
                 <textarea class="chat-input-box" id="msgInput" placeholder="Сообщение..." rows="1"></textarea>
                 <button class="btn btn-ghost btn-icon" id="emojiToggle" title="Реакции">

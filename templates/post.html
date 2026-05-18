@@ -10,10 +10,14 @@
         <div class="post-header">
             {{ user_avatar(post.author, "md") }}
             <div class="post-user-info">
+                {% if post.author.is_viewable %}
                 <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">
-                    {{ post.author.username }}
+                    {{ post.author.display_name }}
                     {% if post.author.verified %}<i class="fas fa-check-circle verified-check"></i>{% endif %}
                 </a>
+                {% else %}
+                <span class="post-username" style="color:var(--text3)">{{ post.author.display_name }}</span>
+                {% endif %}
                 <div class="post-time">{{ post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
             </div>
             {% if current_user.can_delete_post(post) %}
@@ -59,7 +63,11 @@
     <div class="comment" style="background:var(--surface);border-radius:var(--radius-sm);margin-bottom:0.5rem;padding:0.85rem 1rem">
         {{ user_avatar(comment.author, "sm") }}
         <div class="comment-content">
-            <a href="{{ url_for('profile', username=comment.author.username) }}" class="comment-username">{{ comment.author.username }}</a>
+            {% if comment.author.is_viewable %}
+            <a href="{{ url_for('profile', username=comment.author.username) }}" class="comment-username">{{ comment.author.display_name }}</a>
+            {% else %}
+            <span class="comment-username" style="color:var(--text3)">{{ comment.author.display_name }}</span>
+            {% endif %}
             <div class="comment-text">{{ comment.content }}</div>
             <div class="comment-time">{{ comment.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
         </div>

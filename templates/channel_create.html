@@ -34,7 +34,7 @@
 
                 <div class="form-group">
                     <label class="form-label">Аватар</label>
-                    <input type="file" name="avatar" class="form-control" accept="image/*">
+                    <input type="file" name="avatar" class="form-control" accept="image/*" onchange="validateFileSize(this, 5*1024*1024)">
                 </div>
 
                 <div style="display:flex;gap:0.75rem;margin-top:1.5rem">

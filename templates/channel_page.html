@@ -91,7 +91,7 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem">
                     <label class="btn btn-secondary btn-sm" style="cursor:pointer">
                         <i class="fas fa-image"></i> Медиа
-                        <input type="file" name="media" accept="image/*,video/*" style="display:none">
+                        <input type="file" name="media" accept="image/*,video/*" style="display:none" onchange="validateFileSize(this)">
                     </label>
                     <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-paper-plane"></i> Опубликовать</button>
                 </div>

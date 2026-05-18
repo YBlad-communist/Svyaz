@@ -31,14 +31,14 @@
                     <div id="pwdBar" style="height:100%;width:0;border-radius:2px;transition:all 0.3s"></div>
                 </div>
             </div>
-            <button type="submit" class="btn btn-primary w-100" style="margin-top:0.5rem">
-                <i class="fas fa-user-plus"></i> Зарегистрироваться
-            </button>
-        </form>
-        <div style="text-align:center;margin-top:1.25rem;font-size:0.9rem;color:var(--text2)">
-            Уже есть аккаунт? <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">Войти</a>
-        </div>
+        <button type="submit" class="btn btn-primary w-100" style="margin-top:0.5rem">
+            <i class="fas fa-user-plus"></i> Зарегистрироваться
+        </button>
+    </form>
+    <div style="text-align:center;margin-top:1.25rem;font-size:0.9rem;color:var(--text2)">
+        Уже есть аккаунт? <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">Войти</a>
     </div>
+</div>
 </div>
 <script>
 function togglePwd() {

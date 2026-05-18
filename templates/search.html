@@ -54,7 +54,11 @@
         <div style="padding:1rem;border-bottom:1px solid var(--border);transition:background var(--transition)" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
             <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem">
                 <img src="{{ idea.author.avatar }}" class="avatar avatar-sm">
-                <span style="font-weight:600;color:var(--text)">{{ idea.author.username }}</span>
+                {% if idea.author.is_viewable %}
+                <span style="font-weight:600;color:var(--text)">{{ idea.author.display_name }}</span>
+                {% else %}
+                <span style="font-weight:600;color:var(--text3)">{{ idea.author.display_name }}</span>
+                {% endif %}
                 <span style="font-size:0.78rem;color:var(--text3)">{{ idea.created_at.strftime('%d.%m.%Y') }}</span>
                 <span style="margin-left:auto;font-weight:700;color:var(--danger)"><i class="fas fa-heart"></i> {{ idea.likes_count }}</span>
             </div>
@@ -93,7 +97,11 @@
         <div style="padding:1rem;border-bottom:1px solid var(--border);transition:background var(--transition)" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
             <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem">
                 <img src="{{ post.author.avatar }}" class="avatar avatar-sm">
-                <span style="font-weight:600;color:var(--text)">{{ post.author.username }}</span>
+                {% if post.author.is_viewable %}
+                <span style="font-weight:600;color:var(--text)">{{ post.author.display_name }}</span>
+                {% else %}
+                <span style="font-weight:600;color:var(--text3)">{{ post.author.display_name }}</span>
+                {% endif %}
                 <span style="font-size:0.78rem;color:var(--text3)">{{ post.created_at.strftime('%d.%m.%Y') }}</span>
             </div>
             <div style="font-size:0.9rem;color:var(--text2);line-height:1.5">{{ post.content[:200] }}{% if post.content|length > 200 %}...{% endif %}</div>

@@ -120,6 +120,14 @@ class User(UserMixin, db.Model):
         self.deleted_at = datetime.utcnow()
         self.is_active = False
 
+    @property
+    def display_name(self):
+        return "Удалённый пользователь" if self.is_deleted else self.username
+
+    @property
+    def is_viewable(self):
+        return not self.is_deleted
+
 
 class Post(db.Model):
     __tablename__ = 'posts'
@@ -193,6 +201,7 @@ class Idea(db.Model):
     problem = db.Column(db.Text, nullable=True)
     solution = db.Column(db.Text, nullable=True)
     project_type = db.Column(db.String(30), nullable=True, default='other')
+    github_url = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)

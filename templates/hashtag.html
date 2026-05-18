@@ -18,9 +18,13 @@
         <div class="post-header">
             {{ user_avatar(post.author, 'md') }}
             <div class="post-user-info">
+                {% if post.author.is_viewable %}
                 <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">
-                    {{ post.author.username }}
+                    {{ post.author.display_name }}
                 </a>
+                {% else %}
+                <span class="post-username" style="color:var(--text3)">{{ post.author.display_name }}</span>
+                {% endif %}
                 <div class="post-time">{{ post.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
             </div>
         </div>

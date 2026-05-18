@@ -75,7 +75,7 @@
             <i class="fas fa-camera"></i> Сменить аватар
             <form method="POST" action="{{ url_for('upload_avatar') }}" enctype="multipart/form-data" id="avatarForm" style="display:none">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <input type="file" name="avatar" accept="image/*" onchange="document.getElementById('avatarForm').submit()">
+                <input type="file" name="avatar" accept="image/*" onchange="if(validateFileSize(this, 5*1024*1024))document.getElementById('avatarForm').submit()">
             </form>
         </label>
     </div>

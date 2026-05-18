@@ -101,15 +101,26 @@
                     </div>
                     {% endif %}
                     <div style="display:flex;align-items:center;gap:0.75rem;font-size:0.8rem;color:var(--text3)">
+                        {% if idea.author.is_viewable %}
                         <a href="{{ url_for('profile', username=idea.author.username) }}" style="color:var(--text2);text-decoration:none;font-weight:600">
                             <img src="{{ idea.author.avatar }}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:0.3rem">
-                            {{ idea.author.username }}
+                            {{ idea.author.display_name }}
                         </a>
+                        {% else %}
+                        <span style="color:var(--text3);font-weight:600">
+                            <img src="{{ idea.author.avatar }}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:0.3rem">
+                            {{ idea.author.display_name }}
+                        </span>
+                        {% endif %}
                         <span><i class="fas fa-clock"></i> {{ idea.created_at.strftime('%d.%m.%Y') }}</span>
                         <span><i class="fas fa-heart"></i> {{ idea.likes_count }} поддержали</span>
-                        {% if idea.author_id != current_user.id %}
+                        {% if idea.author_id != current_user.id and idea.author.is_viewable %}
                         <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="color:var(--primary);text-decoration:none;font-weight:600">
                             <i class="fas fa-user-plus"></i> Вступить
+                        </a>
+                        {% elif idea.author_id == current_user.id %}
+                        <a href="{{ url_for('idea_edit', idea_id=idea.id) }}" style="color:var(--text2);text-decoration:none;font-weight:600">
+                            <i class="fas fa-edit"></i> Редактировать
                         </a>
                         {% endif %}
                     </div>

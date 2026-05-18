@@ -463,8 +463,8 @@ class TestAccessControl:
         db.session.commit()
 
         login(client, 'bob', 'password123')
-        rv = csrf_post(client, f'/idea/{idea.id}/delete', {}, follow_redirects=True)
-        assert rv.status_code == 200  # redirected to ideas_feed with flash
+        rv = csrf_post(client, f'/idea/{idea.id}/delete', {})
+        assert rv.status_code == 403
 
     def test_admin_can_delete_any_idea(self, client, user1, admin_user):
         idea = Idea(title='Alice Idea', description='Desc', author_id=user1.id)

@@ -221,6 +221,20 @@ async function pollToastNotifications() {
         }
     } catch (e) {}
 }
+
+const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16MB
+function validateFileSize(input, maxSize) {
+    if (input.files && input.files.length) {
+        const file = input.files[0];
+        const limit = maxSize || MAX_FILE_SIZE;
+        if (file.size > limit) {
+            alert(`Файл "${file.name}" слишком большой (${(file.size / 1024 / 1024).toFixed(1)} МБ). Максимум: ${(limit / 1024 / 1024)} МБ`);
+            input.value = '';
+            return false;
+        }
+    }
+    return true;
+}
 </script>
 {% if current_user.is_authenticated %}
 <script>
