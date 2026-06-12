@@ -27,7 +27,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from flask_talisman import Talisman
-from flask_wtf.csrf import CSRFProtect
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
     HAS_SOCKETIO = True
@@ -262,11 +261,6 @@ if HAS_CACHING:
     app.config['CACHE_REDIS_URL'] = f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}/3"
     cache = Cache(app)
 
-# Flask-WTF CSRF is disabled — we use our own csrf_required decorator
-# to support both form and JSON/AJAX requests with a custom token field.
-app.config['WTF_CSRF_ENABLED'] = False
-csrf = CSRFProtect(app)
-
 
 # ---------------------------------------------------------------------------
 # Flask-Login + CSRF validation
@@ -377,7 +371,6 @@ def robots_txt():
 # Health / Readiness
 # ---------------------------------------------------------------------------
 @app.route('/health')
-@csrf.exempt
 def health():
     db_ok = False
     redis_ok = False
@@ -787,7 +780,6 @@ def index():
 
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
-@csrf_required
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('feed'))
@@ -827,7 +819,6 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
-@csrf_required
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('feed'))
