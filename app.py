@@ -262,7 +262,9 @@ if HAS_CACHING:
     app.config['CACHE_REDIS_URL'] = f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}/3"
     cache = Cache(app)
 
-# Flask-WTF CSRF (global)
+# Flask-WTF CSRF is disabled — we use our own csrf_required decorator
+# to support both form and JSON/AJAX requests with a custom token field.
+app.config['WTF_CSRF_ENABLED'] = False
 csrf = CSRFProtect(app)
 
 
