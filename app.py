@@ -16,6 +16,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from flask_talisman import Talisman
+try:
+    import nh3
+except ImportError:
+    raise RuntimeError(
+        "nh3[security] is not installed! Run: pip install 'nh3[security]>=0.2.18'"
+    )
 import redis
 
 from database import db
@@ -28,16 +34,41 @@ if not _secret_key:
         "SECRET_KEY is not set! Generate: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
     )
 
+
+def _resolve_db_uri():
+    """Resolve DATABASE_URL, supporting Docker secrets for the password."""
+    uri = os.environ.get('DATABASE_URL', '')
+    if uri:
+        return uri
+    password_file = os.environ.get('POSTGRES_PASSWORD_FILE')
+    if password_file:
+        try:
+            with open(password_file) as f:
+                pw = f.read().strip()
+            return f"postgresql+psycopg2://svyaz:{pw}@db:5432/svyaz"
+        except (FileNotFoundError, IOError) as exc:
+            logger.warning('Could not read POSTGRES_PASSWORD_FILE: %s', exc)
+    pw = os.environ.get('POSTGRES_PASSWORD', '')
+    if pw:
+        return f"postgresql+psycopg2://svyaz:{pw}@db:5432/svyaz"
+    return 'sqlite:///social_media.db'
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','mp4','webm','ogg','mov','pdf','doc','docx','txt'}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger('audit')
+audit_handler = logging.StreamHandler()
+audit_handler.setFormatter(logging.Formatter('AUDIT %(asctime)s %(message)s'))
+audit_logger.addHandler(audit_handler)
+audit_logger.setLevel(logging.INFO)
+audit_logger.propagate = False
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = _secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///social_media.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = _resolve_db_uri()
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -283,6 +314,15 @@ def internal_error(e):
     logger.error('Internal server error: %s', e, exc_info=True)
     return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
 
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    """Catches all unhandled exceptions to prevent information leaks."""
+    db.session.rollback()
+    logger.critical('Unhandled exception: %s', e, exc_info=True)
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({'error': 'Internal server error'}), 500
+    return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
+
 @app.errorhandler(403)
 def forbidden(e):
     return render_template('error.html', error_code=403, message="Access denied"), 403
@@ -346,6 +386,7 @@ def register():
                     role='default')
         db.session.add(user)
         db.session.commit()
+        audit_logger.info('User registered: username=%s email=%s ip=%s', username, email, get_real_ip())
         login_user(user)
         flash('Registration successful!', 'success')
         return redirect(url_for('feed'))
@@ -368,6 +409,7 @@ def login():
             return redirect(url_for('login'))
 
         if user and check_password_hash(user.password_hash, password):
+            audit_logger.info('Login success: username=%s ip=%s', username, get_real_ip())
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
             db.session.add(user)
@@ -383,11 +425,12 @@ def login():
             if redis_available:
                 try:
                     failed = redis_client.incr(f"failed_attempts:{real_ip}")
-                    redis_client.expire(f"failed_attempts:{real_ip}", 900)  # 15 minutes
+                    redis_client.expire(f"failed_attempts:{real_ip}", 900)
                     if int(failed) >= 5:
-                        logger.warning('Brute-force threshold reached for IP %s', real_ip)
+                        audit_logger.warning('Brute-force threshold reached: ip=%s attempts=%s', real_ip, failed)
                 except Exception:
                     logger.warning('Failed to track failed attempts for IP %s', real_ip)
+            audit_logger.info('Login failed: username=%s ip=%s', username, real_ip)
             flash('Invalid username or password', 'error')
     return render_template('login.html')
 
@@ -535,6 +578,7 @@ def edit_post(post_id):
 
 @app.route('/post/<int:post_id>/delete', methods=['DELETE'])
 @login_required
+@limiter.limit("10 per hour")
 @csrf_required
 def delete_post(post_id):
     post = db.session.get(Post, post_id)
@@ -638,8 +682,10 @@ def profile_edit():
 
 @app.route('/delete_account', methods=['POST'])
 @login_required
+@limiter.limit("2 per hour")
 @csrf_required
 def delete_account():
+    audit_logger.info('Account deleted: username=%s user_id=%s ip=%s', current_user.username, current_user.id, get_real_ip())
     current_user.anonymize()
     db.session.commit()
     logout_user()
@@ -1915,6 +1961,7 @@ def github_repos(username):
 # ------------------------------
 @app.route('/admin/block_user/<int:user_id>', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 @csrf_required
 def block_user(user_id):
     if current_user.role not in ('admin', 'moderator'):
@@ -1930,6 +1977,7 @@ def block_user(user_id):
 
 @app.route('/admin/set_role/<int:user_id>', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 @csrf_required
 def set_user_role(user_id):
     if current_user.role != 'admin':
