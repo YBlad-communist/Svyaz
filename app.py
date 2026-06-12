@@ -16,12 +16,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from flask_talisman import Talisman
-try:
-    import nh3
-except ImportError:
-    raise RuntimeError(
-        "nh3[security] is not installed! Run: pip install 'nh3[security]>=0.2.18'"
-    )
 import redis
 
 from database import db
@@ -34,41 +28,16 @@ if not _secret_key:
         "SECRET_KEY is not set! Generate: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
     )
 
-
-def _resolve_db_uri():
-    """Resolve DATABASE_URL, supporting Docker secrets for the password."""
-    uri = os.environ.get('DATABASE_URL', '')
-    if uri:
-        return uri
-    password_file = os.environ.get('POSTGRES_PASSWORD_FILE')
-    if password_file:
-        try:
-            with open(password_file) as f:
-                pw = f.read().strip()
-            return f"postgresql+psycopg2://svyaz:{pw}@db:5432/svyaz"
-        except (FileNotFoundError, IOError) as exc:
-            logger.warning('Could not read POSTGRES_PASSWORD_FILE: %s', exc)
-    pw = os.environ.get('POSTGRES_PASSWORD', '')
-    if pw:
-        return f"postgresql+psycopg2://svyaz:{pw}@db:5432/svyaz"
-    return 'sqlite:///social_media.db'
-
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','mp4','webm','ogg','mov','pdf','doc','docx','txt'}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-audit_logger = logging.getLogger('audit')
-audit_handler = logging.StreamHandler()
-audit_handler.setFormatter(logging.Formatter('AUDIT %(asctime)s %(message)s'))
-audit_logger.addHandler(audit_handler)
-audit_logger.setLevel(logging.INFO)
-audit_logger.propagate = False
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = _secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = _resolve_db_uri()
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///social_media.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -172,13 +141,6 @@ except redis.ConnectionError:
     logger.warning('Redis connection failed, falling back to in-memory storage')
 except Exception:
     logger.exception('Unexpected error connecting to Redis')
-
-def regenerate_session():
-    """Regenerate session ID to prevent session fixation attacks."""
-    preserved = dict(session)
-    session.clear()
-    session.update(preserved)
-
 
 def get_real_ip():
     """Extracts real client IP considering X-Forwarded-For."""
@@ -294,14 +256,6 @@ def before_request():
         except Exception:
             logger.warning('Failed to check Redis failed_attempts for %s', real_ip)
 
-@app.route('/.well-known/security.txt')
-def security_txt():
-    return send_from_directory(os.path.join(app.static_folder, '.well-known'), 'security.txt', mimetype='text/plain')
-
-@app.route('/robots.txt')
-def robots_txt():
-    return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain')
-
 @app.teardown_appcontext
 def teardown_session(exception):
     """Ensures DB session is closed after each request."""
@@ -327,15 +281,6 @@ def not_found(e):
 def internal_error(e):
     db.session.rollback()
     logger.error('Internal server error: %s', e, exc_info=True)
-    return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
-
-@app.errorhandler(Exception)
-def unhandled_exception(e):
-    """Catches all unhandled exceptions to prevent information leaks."""
-    db.session.rollback()
-    logger.critical('Unhandled exception: %s', e, exc_info=True)
-    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        return jsonify({'error': 'Internal server error'}), 500
     return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
 
 @app.errorhandler(403)
@@ -401,7 +346,6 @@ def register():
                     role='default')
         db.session.add(user)
         db.session.commit()
-        audit_logger.info('User registered: username=%s email=%s ip=%s', username, email, get_real_ip())
         login_user(user)
         flash('Registration successful!', 'success')
         return redirect(url_for('feed'))
@@ -424,11 +368,6 @@ def login():
             return redirect(url_for('login'))
 
         if user and check_password_hash(user.password_hash, password):
-            audit_logger.info('Login success (password): username=%s ip=%s', username, get_real_ip())
-            regenerate_session()
-            if user.totp_enabled:
-                session['totp_user_id'] = user.id
-                return redirect(url_for('totp_verify'))
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
             db.session.add(user)
@@ -444,12 +383,11 @@ def login():
             if redis_available:
                 try:
                     failed = redis_client.incr(f"failed_attempts:{real_ip}")
-                    redis_client.expire(f"failed_attempts:{real_ip}", 900)
+                    redis_client.expire(f"failed_attempts:{real_ip}", 900)  # 15 minutes
                     if int(failed) >= 5:
-                        audit_logger.warning('Brute-force threshold reached: ip=%s attempts=%s', real_ip, failed)
+                        logger.warning('Brute-force threshold reached for IP %s', real_ip)
                 except Exception:
                     logger.warning('Failed to track failed attempts for IP %s', real_ip)
-            audit_logger.info('Login failed: username=%s ip=%s', username, real_ip)
             flash('Invalid username or password', 'error')
     return render_template('login.html')
 
@@ -597,7 +535,6 @@ def edit_post(post_id):
 
 @app.route('/post/<int:post_id>/delete', methods=['DELETE'])
 @login_required
-@limiter.limit("10 per hour")
 @csrf_required
 def delete_post(post_id):
     post = db.session.get(Post, post_id)
@@ -664,94 +601,6 @@ def update_profile():
     flash('Profile updated', 'success')
     return redirect(url_for('profile', username=current_user.username))
 
-
-# ------------------------------
-# 2FA / TOTP
-# ------------------------------
-try:
-    import pyotp
-    import qrcode
-    from qrcode.image.pil import PilImage
-    import io
-    import base64
-    HAS_TOTP = True
-except ImportError:
-    HAS_TOTP = False
-    logger.warning('pyotp or qrcode not installed — 2FA disabled')
-
-@app.route('/totp/verify', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")
-def totp_verify():
-    if not HAS_TOTP:
-        return '2FA not available', 503
-    user_id = session.get('totp_user_id')
-    if not user_id:
-        return redirect(url_for('login'))
-    user = db.session.get(User, user_id)
-    if not user or not user.totp_enabled:
-        return redirect(url_for('login'))
-    if request.method == 'POST':
-        code = request.form.get('code', '').strip()
-        totp = pyotp.TOTP(user.totp_secret)
-        if totp.verify(code, valid_window=1):
-            session.pop('totp_user_id', None)
-            login_user(user, remember=True)
-            user.last_login = datetime.utcnow()
-            db.session.add(user)
-            db.session.commit()
-            flash('Welcome!', 'success')
-            return redirect(url_for('feed'))
-        flash('Invalid 2FA code', 'error')
-        audit_logger.warning('TOTP failed: user_id=%s ip=%s', user_id, get_real_ip())
-    return render_template('totp_verify.html')
-
-@app.route('/totp/setup', methods=['GET', 'POST'])
-@login_required
-@csrf_required
-def totp_setup():
-    if not HAS_TOTP:
-        return '2FA not available', 503
-    if request.method == 'POST':
-        code = request.form.get('code', '').strip()
-        secret = session.get('totp_setup_secret')
-        if not secret:
-            flash('Session expired. Please try again.', 'error')
-            return redirect(url_for('totp_setup'))
-        totp = pyotp.TOTP(secret)
-        if totp.verify(code, valid_window=1):
-            current_user.totp_secret = secret
-            current_user.totp_enabled = True
-            db.session.add(current_user)
-            db.session.commit()
-            session.pop('totp_setup_secret', None)
-            flash('2FA enabled successfully!', 'success')
-            audit_logger.info('TOTP enabled: username=%s', current_user.username)
-            return redirect(url_for('profile_edit'))
-        flash('Invalid code. Try again.', 'error')
-        return redirect(url_for('totp_setup'))
-    secret = pyotp.random_base32()
-    session['totp_setup_secret'] = secret
-    totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(current_user.email, issuer_name="Svyaz")
-    qr = qrcode.make(provisioning_uri)
-    buf = io.BytesIO()
-    qr.save(buf, format='PNG')
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-    return render_template('totp_setup.html', secret=secret, qr_data=qr_b64)
-
-@app.route('/totp/disable', methods=['POST'])
-@login_required
-@csrf_required
-def totp_disable():
-    current_user.totp_secret = None
-    current_user.totp_enabled = False
-    db.session.add(current_user)
-    db.session.commit()
-    flash('2FA disabled', 'success')
-    audit_logger.info('TOTP disabled: username=%s', current_user.username)
-    return redirect(url_for('profile_edit'))
-
-
 @app.route('/profile/edit', methods=['GET', 'POST'])
 @login_required
 @csrf_required
@@ -789,10 +638,8 @@ def profile_edit():
 
 @app.route('/delete_account', methods=['POST'])
 @login_required
-@limiter.limit("2 per hour")
 @csrf_required
 def delete_account():
-    audit_logger.info('Account deleted: username=%s user_id=%s ip=%s', current_user.username, current_user.id, get_real_ip())
     current_user.anonymize()
     db.session.commit()
     logout_user()
@@ -2068,7 +1915,6 @@ def github_repos(username):
 # ------------------------------
 @app.route('/admin/block_user/<int:user_id>', methods=['POST'])
 @login_required
-@limiter.limit("10 per hour")
 @csrf_required
 def block_user(user_id):
     if current_user.role not in ('admin', 'moderator'):
@@ -2084,7 +1930,6 @@ def block_user(user_id):
 
 @app.route('/admin/set_role/<int:user_id>', methods=['POST'])
 @login_required
-@limiter.limit("10 per hour")
 @csrf_required
 def set_user_role(user_id):
     if current_user.role != 'admin':

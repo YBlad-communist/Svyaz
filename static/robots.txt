@@ -1,5 +1,0 @@
-User-agent: *
-Disallow: /admin/
-Disallow: /api/
-Disallow: /uploads/
-Disallow: /static/.well-known/

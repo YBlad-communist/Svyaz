@@ -82,8 +82,6 @@ class User(UserMixin, db.Model):
     github_username = db.Column(db.String(39), nullable=True)
     developer_role = db.Column(db.String(20), nullable=True)
     verified = db.Column(db.Boolean, default=False)
-    totp_secret = db.Column(db.String(32), nullable=True)
-    totp_enabled = db.Column(db.Boolean, default=False)
 
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade='all, delete-orphan')
     comments = db.relationship('Comment', backref='author', lazy='dynamic', cascade='all, delete-orphan')
