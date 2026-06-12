@@ -1,28 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Регистрация — СвяZь{% endblock %}
+{% block title %}Sign Up — DevConnect{% endblock %}
 {% block content %}
 <div class="auth-wrap">
     <div class="auth-card">
         <div class="auth-logo">
-            <div class="auth-logo-text"><i class="fas fa-link"></i> СвяZь</div>
+            <div class="auth-logo-text"><i class="fas fa-link"></i> DevConnect</div>
         </div>
-        <h2 class="auth-title">Создай аккаунт</h2>
-        <p class="auth-sub">Присоединяйся к сообществу СвяZь</p>
+        <h2 class="auth-title">Create an account</h2>
+        <p class="auth-sub">Join the DevConnect community</p>
         <form method="POST">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label class="form-label">Имя пользователя</label>
+                <label class="form-label">Username</label>
                 <input type="text" name="username" class="form-control" placeholder="cool_username" required minlength="3" maxlength="32" autocomplete="username">
-                <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">От 3 до 32 символов</div>
+                <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">3 to 32 characters</div>
             </div>
             <div class="form-group">
                 <label class="form-label">Email</label>
                 <input type="email" name="email" class="form-control" placeholder="you@example.com" required autocomplete="email">
             </div>
             <div class="form-group">
-                <label class="form-label">Пароль</label>
+                <label class="form-label">Password</label>
                 <div style="position:relative">
-                    <input type="password" name="password" id="pwdInput" class="form-control" placeholder="Минимум 6 символов" required minlength="6" autocomplete="new-password">
+                    <input type="password" name="password" id="pwdInput" class="form-control" placeholder="Minimum 6 characters" required minlength="6" autocomplete="new-password">
                     <button type="button" onclick="togglePwd()" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer">
                         <i class="fas fa-eye" id="pwdEye"></i>
                     </button>
@@ -32,11 +32,11 @@
                 </div>
             </div>
         <button type="submit" class="btn btn-primary w-100" style="margin-top:0.5rem">
-            <i class="fas fa-user-plus"></i> Зарегистрироваться
+            <i class="fas fa-user-plus"></i> Sign Up
         </button>
     </form>
     <div style="text-align:center;margin-top:1.25rem;font-size:0.9rem;color:var(--text2)">
-        Уже есть аккаунт? <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">Войти</a>
+        Уже есть аккаунт? <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">Sign In</a>
     </div>
 </div>
 </div>

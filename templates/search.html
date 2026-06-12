@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from 'macros.html' import user_avatar %}
-{% block title %}Поиск — СвяZь{% endblock %}
+{% block title %}Search — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:720px;margin:0 auto">
     <div class="card" style="margin-bottom:1rem">
@@ -9,9 +9,9 @@
                 <div style="display:flex;gap:0.75rem;align-items:center">
                     <div style="flex:1;position:relative">
                         <i class="fas fa-search" style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:var(--text3)"></i>
-                        <input type="text" name="q" class="form-control" value="{{ query or '' }}" placeholder="Поиск..." style="padding-left:2.5rem;border-radius:50px" autofocus>
+                        <input type="text" name="q" class="form-control" value="{{ query or '' }}" placeholder="Search..." style="padding-left:2.5rem;border-radius:50px" autofocus>
                     </div>
-                    <button type="submit" class="btn btn-primary">Найти</button>
+                    <button type="submit" class="btn btn-primary">Search</button>
                 </div>
             </form>
         </div>
@@ -19,16 +19,16 @@
 
     {% if query %}
     <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
-        <a href="{{ url_for('search', q=query, type='all') }}" class="btn btn-sm {% if search_type == 'all' %}btn-primary{% else %}btn-secondary{% endif %}">Все</a>
-        <a href="{{ url_for('search', q=query, type='users') }}" class="btn btn-sm {% if search_type == 'users' %}btn-primary{% else %}btn-secondary{% endif %}">Люди</a>
-        <a href="{{ url_for('search', q=query, type='ideas') }}" class="btn btn-sm {% if search_type == 'ideas' %}btn-primary{% else %}btn-secondary{% endif %}">Идеи</a>
-        <a href="{{ url_for('search', q=query, type='channels') }}" class="btn btn-sm {% if search_type == 'channels' %}btn-primary{% else %}btn-secondary{% endif %}">Каналы</a>
-        <a href="{{ url_for('search', q=query, type='posts') }}" class="btn btn-sm {% if search_type == 'posts' %}btn-primary{% else %}btn-secondary{% endif %}">Посты</a>
+        <a href="{{ url_for('search', q=query, type='all') }}" class="btn btn-sm {% if search_type == 'all' %}btn-primary{% else %}btn-secondary{% endif %}">All</a>
+        <a href="{{ url_for('search', q=query, type='users') }}" class="btn btn-sm {% if search_type == 'users' %}btn-primary{% else %}btn-secondary{% endif %}">People</a>
+        <a href="{{ url_for('search', q=query, type='ideas') }}" class="btn btn-sm {% if search_type == 'ideas' %}btn-primary{% else %}btn-secondary{% endif %}">Ideas</a>
+        <a href="{{ url_for('search', q=query, type='channels') }}" class="btn btn-sm {% if search_type == 'channels' %}btn-primary{% else %}btn-secondary{% endif %}">Channels</a>
+        <a href="{{ url_for('search', q=query, type='posts') }}" class="btn btn-sm {% if search_type == 'posts' %}btn-primary{% else %}btn-secondary{% endif %}">Posts</a>
     </div>
 
     {% if users %}
     <div class="card" style="margin-bottom:1rem">
-        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Люди ({{ users|length }})</div>
+        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> People ({{ users|length }})</div>
         {% for user in users %}
         <a href="{{ url_for('profile', username=user.username) }}" class="search-user-item">
             {{ user_avatar(user, "md") }}
@@ -40,7 +40,7 @@
                 {% if user.developer_role %}<span style="display:inline-block;padding:0.1rem 0.4rem;border-radius:50px;background:rgba(99,102,241,0.1);color:var(--primary);font-size:0.7rem;font-weight:600">{{ user.developer_role }}</span>{% endif %}
                 {% if user.bio %}<div style="font-size:0.82rem;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ user.bio[:60] }}</div>{% endif %}
             </div>
-            <div style="font-size:0.8rem;color:var(--text3)">{{ user.followers.count() }} подп.</div>
+            <div style="font-size:0.8rem;color:var(--text3)">{{ user.followers.count() }} followers</div>
         </a>
         {% endfor %}
     </div>
@@ -48,7 +48,7 @@
 
     {% if ideas %}
     <div class="card" style="margin-bottom:1rem">
-        <div class="card-header"><i class="fas fa-lightbulb" style="color:#f59e0b"></i> Идеи ({{ ideas|length }})</div>
+        <div class="card-header"><i class="fas fa-lightbulb" style="color:#f59e0b"></i> Ideas ({{ ideas|length }})</div>
         {% for idea in ideas %}
         <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="display:block;text-decoration:none">
         <div style="padding:1rem;border-bottom:1px solid var(--border);transition:background var(--transition)" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
@@ -79,11 +79,11 @@
 
     {% if channels %}
     <div class="card" style="margin-bottom:1rem">
-        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Каналы ({{ channels|length }})</div>
+        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Channels ({{ channels|length }})</div>
         {% for ch in channels %}
         <a href="{{ url_for('channel_page', channel_name=ch.name) }}" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-bottom:1px solid var(--border);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
             {% if ch.avatar_url %}<img src="{{ ch.avatar_url }}" style="width:40px;height:40px;border-radius:50%;object-fit:cover">{% else %}<div style="width:40px;height:40px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;color:white;font-weight:700">{{ ch.title[0]|upper }}</div>{% endif %}
-            <div style="flex:1"><div style="font-weight:700;color:var(--text)">{{ ch.title }}</div><div style="font-size:0.8rem;color:var(--text3)">{{ ch.member_count() }} участников</div></div>
+            <div style="flex:1"><div style="font-weight:700;color:var(--text)">{{ ch.title }}</div><div style="font-size:0.8rem;color:var(--text3)">{{ ch.member_count() }} members</div></div>
         </a>
         {% endfor %}
     </div>
@@ -91,7 +91,7 @@
 
     {% if posts %}
     <div class="card">
-        <div class="card-header"><i class="fas fa-file-alt" style="color:var(--primary)"></i> Посты ({{ posts|length }})</div>
+        <div class="card-header"><i class="fas fa-file-alt" style="color:var(--primary)"></i> Posts ({{ posts|length }})</div>
         {% for post in posts %}
         <a href="{{ url_for('view_post', post_id=post.id) }}" style="display:block;text-decoration:none">
         <div style="padding:1rem;border-bottom:1px solid var(--border);transition:background var(--transition)" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
@@ -113,7 +113,7 @@
 
     {% if hashtags %}
     <div class="card" style="margin-bottom:1rem">
-        <div class="card-header"><i class="fas fa-hashtag" style="color:var(--primary)"></i> Хештеги</div>
+        <div class="card-header"><i class="fas fa-hashtag" style="color:var(--primary)"></i> Hashtags</div>
         <div style="padding:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem">
             {% for ht in hashtags %}
             <a href="{{ url_for('hashtag_feed', tag_name=ht.name) }}" style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.4rem 0.85rem;border-radius:50px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.25);color:var(--primary);text-decoration:none;font-weight:600;font-size:0.88rem">#{{ ht.name }} <span style="font-size:0.72rem;color:var(--text3);font-weight:400">{{ ht.posts_count }}</span></a>
@@ -125,14 +125,14 @@
     {% if not users and not posts and not ideas and not channels %}
     <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:0.75rem">🔍</div>
-        <div style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.3rem">Ничего не найдено</div>
-        <div>Попробуй другой запрос</div>
+        <div style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.3rem">Nothing found</div>
+        <div>Try a different query</div>
     </div>
     {% endif %}
     {% else %}
     <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:0.75rem">🔍</div>
-        <div>Введи запрос для поиска</div>
+        <div>Enter a query to search</div>
     </div>
     {% endif %}
 </div>

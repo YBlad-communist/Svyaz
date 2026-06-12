@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: svyaz
-      POSTGRES_PASSWORD: svyaz_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-svyaz_strong_password_change_me}
       POSTGRES_DB: svyaz
     volumes:
       - pg_data:/var/lib/postgresql/data

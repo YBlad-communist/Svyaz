@@ -122,7 +122,7 @@ class User(UserMixin, db.Model):
 
     @property
     def display_name(self):
-        return "Удалённый пользователь" if self.is_deleted else self.username
+        return "Deleted user" if self.is_deleted else self.username
 
     @property
     def is_viewable(self):
@@ -283,9 +283,9 @@ class Chat(db.Model):
             if p.id != user.id: return p
         return None
     def get_display_name(self, user):
-        if self.is_group: return self.name or "Групповой чат"
+        if self.is_group: return self.name or "Group Chat"
         other = self.get_other_participant(user)
-        return other.username if other else "Чат"
+        return other.username if other else "Chat"
     def get_avatar(self, user):
         if self.is_group: return self.avatar or "https://ui-avatars.com/api/?background=random&name=Group"
         other = self.get_other_participant(user)
@@ -486,10 +486,11 @@ ALLOWED_URL_SCHEMES = {'http', 'https', 'mailto'}
 
 EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+PASSWORD_RE = re.compile(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};:\\|,.<>\/?]).{8,128}$')
 
 
 def sanitize_html(text):
-    """Санитизация HTML: разрешает безопасные теги, вырезает скрипты и опасные атрибуты."""
+    """Sanitize HTML: allows safe tags, removes scripts and dangerous attributes."""
     if not text:
         return ''
     return nh3.clean(
@@ -501,17 +502,36 @@ def sanitize_html(text):
 
 
 def validate_email(email):
-    """Проверка формата email."""
+    """Validate email format."""
     if not email or len(email) > 254:
         return False
     return bool(EMAIL_RE.match(email))
 
 
 def validate_username(username):
-    """Проверка формата username."""
+    """Validate username format: 3-32 chars, letters/digits/_-."""
     if not username or len(username) < 3 or len(username) > 32:
         return False
     return bool(USERNAME_RE.match(username))
+
+
+def validate_password(password):
+    """Validate password: 8-128 chars, at least 1 uppercase, 1 lowercase, 1 digit, 1 special char."""
+    if not password:
+        return False, "Password is required"
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters"
+    if len(password) > 128:
+        return False, "Password is too long"
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter"
+    if not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter"
+    if not re.search(r'\d', password):
+        return False, "Password must contain at least one digit"
+    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};:\\|,.<>\/?]', password):
+        return False, "Password must contain at least one special character"
+    return True, ""
 
 
 def validate_url(url):

@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Участники {{ channel.title }} — СвяZь{% endblock %}
+{% block title %}Members {{ channel.title }} — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:700px;margin:0 auto">
     <div style="margin-bottom:1rem">
         <a href="{{ url_for('channel_page', channel_name=channel.name) }}" style="color:var(--primary);text-decoration:none">
-            <i class="fas fa-arrow-left"></i> Назад к каналу
+            <i class="fas fa-arrow-left"></i> Back to Channel
         </a>
     </div>
 
     <div class="card">
-        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Участники ({{ member_users|length }})</div>
+        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Members ({{ member_users|length }})</div>
         {% for m in member_users %}
         <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-bottom:1px solid var(--border)">
             <a href="{{ url_for('profile', username=m.user.username) }}">
@@ -19,16 +19,16 @@
                 <a href="{{ url_for('profile', username=m.user.username) }}" style="font-weight:600;color:var(--text);text-decoration:none">{{ m.user.username }}</a>
                 <div style="font-size:0.78rem;color:var(--text3)">
                     {% if m.role == 'admin' %}
-                    <span style="color:#f59e0b;font-weight:600">Админ</span>
+                    <span style="color:#f59e0b;font-weight:600">Admin</span>
                     {% elif m.role == 'moderator' %}
-                    <span style="color:#10b981;font-weight:600">Модератор</span>
+                    <span style="color:#10b981;font-weight:600">Moderator</span>
                     {% else %}
-                    Участник
+                    Member
                     {% endif %}
                     {% if m.status == 'pending' %}
-                    <span style="color:#f59e0b">(ожидание)</span>
+                    <span style="color:#f59e0b">(pending)</span>
                     {% elif m.status == 'banned' %}
-                    <span style="color:#ef4444">(забанен)</span>
+                    <span style="color:#ef4444">(banned)</span>
                     {% endif %}
                 </div>
             </div>
@@ -37,20 +37,20 @@
                 <form method="POST" action="{{ url_for('channel_change_role', channel_name=channel.name, user_id=m.user.id) }}" style="display:inline">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <select name="role" class="form-control form-control-sm" style="width:auto;padding:0.25rem 0.5rem;font-size:0.75rem" onchange="this.form.submit()">
-                        <option value="member" {% if m.role == 'member' %}selected{% endif %}>Участник</option>
-                        <option value="moderator" {% if m.role == 'moderator' %}selected{% endif %}>Модератор</option>
-                        <option value="admin" {% if m.role == 'admin' %}selected{% endif %}>Админ</option>
+                        <option value="member" {% if m.role == 'member' %}selected{% endif %}>Member</option>
+                        <option value="moderator" {% if m.role == 'moderator' %}selected{% endif %}>Moderator</option>
+                        <option value="admin" {% if m.role == 'admin' %}selected{% endif %}>Admin</option>
                     </select>
                 </form>
                 {% if m.status != 'banned' %}
                 <form method="POST" action="{{ url_for('channel_ban_member', channel_name=channel.name, user_id=m.user.id) }}">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-danger btn-sm" title="Забанить"><i class="fas fa-ban"></i></button>
+                    <button type="submit" class="btn btn-danger btn-sm" title="Ban"><i class="fas fa-ban"></i></button>
                 </form>
                 {% endif %}
                 <form method="POST" action="{{ url_for('channel_remove_member', channel_name=channel.name, user_id=m.user.id) }}">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-secondary btn-sm" title="Удалить"><i class="fas fa-user-minus"></i></button>
+                    <button type="submit" class="btn btn-secondary btn-sm" title="Remove"><i class="fas fa-user-minus"></i></button>
                 </form>
             </div>
             {% endif %}

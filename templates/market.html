@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Маркет рамок — СвяZь{% endblock %}
+{% block title %}Frame Market — DevConnect{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -147,28 +147,28 @@
 <div class="market-hero">
     <div style="font-size:3rem;margin-bottom:0.5rem">🎭</div>
     <div class="market-hero-title">Маркет рамок</div>
-    <div class="market-hero-sub">Уникальные рамки для аватара — как подарки в Telegram</div>
+    <div class="market-hero-sub">Unique avatar frames — like gifts in Telegram</div>
     {% if not current_user.is_premium_active() %}
     <div style="margin-top:1rem">
         <a href="{{ url_for('premium_page') }}" class="btn btn-premium btn-sm">
-            <i class="fas fa-crown"></i> Нужен Premium для покупки
+            <i class="fas fa-crown"></i> Premium required to purchase
         </a>
     </div>
     {% else %}
     <div style="margin-top:0.75rem;font-size:0.82rem;color:rgba(255,255,255,0.5)">
-        Базовая «Золотая» рамка уже в твоей коллекции 👑
+        Basic "Gold" frame is already in your collection 👑
     </div>
     {% endif %}
 </div>
 
 <!-- Фильтры -->
 <div class="filter-tabs">
-    <button class="filter-tab active" onclick="filterFrames('all', this)">Все</button>
-    <button class="filter-tab" onclick="filterFrames('owned', this)">Мои</button>
-    <button class="filter-tab rarity-common" onclick="filterFrames('common', this)">Обычные</button>
-    <button class="filter-tab rarity-rare" onclick="filterFrames('rare', this)">Редкие</button>
-    <button class="filter-tab rarity-epic" onclick="filterFrames('epic', this)">Эпические</button>
-    <button class="filter-tab rarity-legendary" onclick="filterFrames('legendary', this)">Легендарные</button>
+    <button class="filter-tab active" onclick="filterFrames('all', this)">All</button>
+    <button class="filter-tab" onclick="filterFrames('owned', this)">Mine</button>
+    <button class="filter-tab rarity-common" onclick="filterFrames('common', this)">Common</button>
+    <button class="filter-tab rarity-rare" onclick="filterFrames('rare', this)">Rare</button>
+    <button class="filter-tab rarity-epic" onclick="filterFrames('epic', this)">Epic</button>
+    <button class="filter-tab rarity-legendary" onclick="filterFrames('legendary', this)">Legendary</button>
 </div>
 
 <!-- Grid -->
@@ -181,7 +181,7 @@
          id="fc-{{ frame.key }}">
 
         {% if is_equipped %}
-        <div class="equipped-badge">✓ Надета</div>
+        <div class="equipped-badge">✓ Equipped</div>
         {% endif %}
 
         <div class="frame-preview-wrap">
@@ -204,34 +204,34 @@
             <div class="frame-footer">
                 <div>
                     {% if frame.price == 0 %}
-                    <div class="frame-price free">Бесплатно</div>
-                    <div style="font-size:0.68rem;color:var(--text3)">для Premium</div>
+                    <div class="frame-price free">Free</div>
+                    <div style="font-size:0.68rem;color:var(--text3)">for Premium</div>
                     {% else %}
                     <div class="frame-price">{{ frame.price }} ₽</div>
                     {% endif %}
                     <div class="frame-owners">
                         <i class="fas fa-users" style="font-size:0.65rem"></i>
-                        {{ frame.owners_count or 0 }} владельцев
+                        {{ frame.owners_count or 0 }} owners
                     </div>
                 </div>
 
                 <div style="display:flex;flex-direction:column;gap:0.35rem;align-items:flex-end">
                     {% if is_equipped %}
                     <button class="btn btn-secondary btn-sm" disabled>
-                        <i class="fas fa-check"></i> Надета
+                        <i class="fas fa-check"></i> Equipped
                     </button>
                     {% elif is_owned %}
                     <button class="btn btn-primary btn-sm" onclick="equipFrame('{{ frame.key }}', '{{ frame.name }}')">
-                        <i class="fas fa-ring"></i> Надеть
+                        <i class="fas fa-ring"></i> Equip
                     </button>
                     {% elif current_user.is_premium_active() %}
                     <form method="POST" action="{{ url_for('buy_frame', frame_key=frame.key) }}" style="margin:0">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-premium btn-sm">
                             {% if frame.price == 0 %}
-                            <i class="fas fa-plus"></i> Получить
+                            <i class="fas fa-plus"></i> Get
                             {% else %}
-                            <i class="fas fa-shopping-bag"></i> Купить {{ frame.price }} ₽
+                            <i class="fas fa-shopping-bag"></i> Buy {{ frame.price }} ₽
                             {% endif %}
                         </button>
                     </form>
@@ -250,7 +250,7 @@
 {% if not frames %}
 <div class="card" style="text-align:center;padding:4rem;color:var(--text3)">
     <div style="font-size:3rem;margin-bottom:1rem">🎭</div>
-    <div>Рамки загружаются...</div>
+    <div>Frames loading...</div>
 </div>
 {% endif %}
 
@@ -293,13 +293,13 @@ async function equipFrame(key, name) {
             card.classList.add('equipped');
             const badge = document.createElement('div');
             badge.className = 'equipped-badge';
-            badge.textContent = '✓ Надета';
+            badge.textContent = '✓ Equipped';
             card.appendChild(badge);
             const btn = card.querySelector('button.btn-primary');
-            if (btn) { btn.disabled = true; btn.className = 'btn btn-secondary btn-sm'; btn.innerHTML = '<i class="fas fa-check"></i> Надета'; btn.onclick = null; }
+            if (btn) { btn.disabled = true; btn.className = 'btn btn-secondary btn-sm'; btn.innerHTML = '<i class="fas fa-check"></i> Equipped'; btn.onclick = null; }
         }
         // Используем базовый showToast из base.html с ссылкой на профиль
-        baseShowToast(`Рамка «${name}» надета! Посмотри на профиле`, PROFILE_URL, 'success');
+        baseShowToast(`Frame "${name}" equipped! Check your profile`, PROFILE_URL, 'success');
     }
 }
 

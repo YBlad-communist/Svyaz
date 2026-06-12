@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Лента — СвяZь{% endblock %}
+{% block title %}Feed — DevConnect{% endblock %}
 {% block content %}
 <div class="layout-grid">
 <div class="sticky-col">
@@ -13,28 +13,28 @@
             <div style="display:flex;justify-content:center;gap:1.5rem;margin-top:1rem">
                 <div style="text-align:center">
                     <div style="font-weight:800;color:var(--primary)">{{ current_user.posts.count() }}</div>
-                    <div style="font-size:0.72rem;color:var(--text3)">Постов</div>
+                    <div style="font-size:0.72rem;color:var(--text3)">Posts</div>
                 </div>
                 <div style="text-align:center">
                     <div style="font-weight:800;color:var(--primary)">{{ current_user.followers.count() }}</div>
-                    <div style="font-size:0.72rem;color:var(--text3)">Подписчики</div>
+                    <div style="font-size:0.72rem;color:var(--text3)">Followers</div>
                 </div>
                 <div style="text-align:center">
                     <div style="font-weight:800;color:var(--primary)">{{ current_user.following.count() }}</div>
-                    <div style="font-size:0.72rem;color:var(--text3)">Подписки</div>
+                    <div style="font-size:0.72rem;color:var(--text3)">Following</div>
                 </div>
             </div>
         </div>
         <div style="border-top:1px solid var(--border);padding:0.75rem">
             <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-secondary w-100 btn-sm">
-                <i class="fas fa-user"></i> Мой профиль
+                <i class="fas fa-user"></i> My Profile
             </a>
         </div>
     </div>
     <div class="sidebar-card">
-        <div class="sidebar-card-header"><i class="fas fa-bolt"></i> Быстрые ссылки</div>
+        <div class="sidebar-card-header"><i class="fas fa-bolt"></i> Quick Links</div>
         <div style="padding:0.5rem">
-            {% for icon, label, ep in [('fa-home','Лента','feed'),('fa-lightbulb','Идеи','ideas_feed'),('fa-users','Каналы','channels_list'),('fa-comments','Чаты','chats'),('fa-bell','Уведомления','notifications'),('fa-search','Поиск','search')] %}
+            {% for icon, label, ep in [('fa-home','Feed','feed'),('fa-lightbulb','Ideas','ideas_feed'),('fa-users','Channels','channels_list'),('fa-comments','Chats','chats'),('fa-bell','Notifications','notifications'),('fa-search','Search','search')] %}
             <a href="{{ url_for(ep) }}" class="dropdown-item {% if request.endpoint == ep %}text-primary{% endif %}">
                 <i class="fas {{ icon }}"></i> {{ label }}
             </a>
@@ -49,7 +49,7 @@
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div style="display:flex;gap:0.75rem;align-items:flex-start">
                 <img src="{{ current_user.avatar }}" class="avatar avatar-sm" style="margin-top:0.3rem">
-                <textarea class="compose-input" name="content" id="composeText" placeholder="Что нового, {{ current_user.username }}? Используй #хештег" maxlength="10000" autocomplete="off"></textarea>
+                <textarea class="compose-input" name="content" id="composeText" placeholder="What's new, {{ current_user.username }}? Use #hashtag" maxlength="10000" autocomplete="off"></textarea>
             </div>
             <div id="mediaPreview" style="display:none;margin-top:0.75rem;border-radius:var(--radius-sm);overflow:hidden;position:relative">
                 <img id="mediaPreviewImg" style="max-height:200px;border-radius:var(--radius-sm);display:none">
@@ -60,12 +60,12 @@
             </div>
             <div class="compose-footer">
                 <label class="compose-media-btn" for="mediaInput">
-                    <i class="fas fa-image"></i> Медиа
+                    <i class="fas fa-image"></i> Media
                 </label>
                 <input type="file" id="mediaInput" name="media" accept="image/*,video/*" style="display:none" onchange="if(!validateFileSize(this))return;previewMedia(this)">
                 <span class="compose-counter" id="charCount">0 / 10000</span>
                 <button type="submit" class="btn btn-primary btn-sm" id="postBtn">
-                    <i class="fas fa-paper-plane"></i> Опубликовать
+                    <i class="fas fa-paper-plane"></i> Publish
                 </button>
             </div>
         </form>
@@ -75,7 +75,7 @@
     {% for post in posts.items %}
     <div class="post-card" id="post-{{ post.id }}">
         {% if post.is_pinned %}
-        <div class="post-pinned-indicator"><i class="fas fa-thumbtack"></i> Закреплённый пост</div>
+        <div class="post-pinned-indicator"><i class="fas fa-thumbtack"></i> Pinned post</div>
         {% endif %}
         <div class="post-header">
             <img src="{{ post.author.avatar }}" class="avatar avatar-md">
@@ -83,7 +83,7 @@
                 {% if post.author.is_viewable %}
                 <a href="{{ url_for('profile', username=post.author.username) }}" class="post-username">
                     {{ post.author.display_name }}
-                    {% if post.author.verified %}<i class="fas fa-check-circle verified-check" title="Верифицирован"></i>{% endif %}
+                    {% if post.author.verified %}<i class="fas fa-check-circle verified-check" title="Verified"></i>{% endif %}
                     {% if post.author.role == 'admin' %}<span class="role-badge role-admin">Admin</span>{% endif %}
                     {% if post.author.role == 'moderator' %}<span class="role-badge role-moderator">Mod</span>{% endif %}
                 </a>
@@ -100,16 +100,16 @@
                 </button>
                 <div class="dropdown-menu" id="postMenu-{{ post.id }}" style="min-width:160px;right:0;left:auto">
                     <a href="{{ url_for('view_post', post_id=post.id) }}" class="dropdown-item">
-                        <i class="fas fa-eye"></i> Открыть пост
+                        <i class="fas fa-eye"></i> Open post
                     </a>
                     {% if current_user.id == post.user_id %}
                     <button class="dropdown-item" onclick="editPost({{ post.id }})">
-                        <i class="fas fa-edit"></i> Редактировать
+                        <i class="fas fa-edit"></i> Edit
                     </button>
                     {% endif %}
                     {% if current_user.can_delete_post(post) %}
                     <button class="dropdown-item danger" onclick="deletePost({{ post.id }})">
-                        <i class="fas fa-trash"></i> Удалить
+                        <i class="fas fa-trash"></i> Delete
                     </button>
                     {% endif %}
                 </div>
@@ -163,7 +163,7 @@
                 <form onsubmit="submitComment(event, {{ post.id }})">
                     <div style="display:flex;gap:0.6rem;align-items:center">
                         <img src="{{ current_user.avatar }}" class="avatar avatar-sm">
-                        <input type="text" class="form-control" placeholder="Написать комментарий..." id="commentInput-{{ post.id }}" style="border-radius:50px">
+                        <input type="text" class="form-control" placeholder="Write a comment..." id="commentInput-{{ post.id }}" style="border-radius:50px">
                         <button type="submit" class="btn btn-primary btn-sm btn-icon">
                             <i class="fas fa-paper-plane"></i>
                         </button>
@@ -178,12 +178,12 @@
     <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1.5rem">
         {% if posts.has_prev %}
         <a href="{{ url_for('feed', page=posts.prev_num) }}" class="btn btn-secondary">
-            <i class="fas fa-arrow-left"></i> Назад
+            <i class="fas fa-arrow-left"></i> Back
         </a>
         {% endif %}
         {% if posts.has_next %}
         <a href="{{ url_for('feed', page=posts.next_num) }}" class="btn btn-secondary">
-            Далее <i class="fas fa-arrow-right"></i>
+            Next <i class="fas fa-arrow-right"></i>
         </a>
         {% endif %}
     </div>
@@ -192,10 +192,10 @@
     {% else %}
     <div class="card" style="text-align:center;padding:3rem 2rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:1rem">🌱</div>
-        <div style="font-size:1.1rem;font-weight:600;margin-bottom:0.5rem;color:var(--text)">Лента пуста</div>
-        <div>Подписывайся на людей, чтобы видеть их посты!</div>
+        <div style="font-size:1.1rem;font-weight:600;margin-bottom:0.5rem;color:var(--text)">Feed is empty</div>
+        <div>Follow people to see their posts!</div>
         <a href="{{ url_for('search') }}" class="btn btn-primary" style="margin-top:1rem">
-            <i class="fas fa-search"></i> Найти людей
+            <i class="fas fa-search"></i> Find People
         </a>
     </div>
     {% endif %}
@@ -203,15 +203,15 @@
 
 <div class="sticky-col">
     <div class="sidebar-card">
-        <div class="sidebar-card-header"><i class="fas fa-users"></i> Рекомендации</div>
+        <div class="sidebar-card-header"><i class="fas fa-users"></i> Recommendations</div>
         <div id="recommendations" style="padding:0.5rem">
-            <div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.85rem">Загрузка...</div>
+            <div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.85rem">Loading...</div>
         </div>
     </div>
     <div class="sidebar-card">
-        <div class="sidebar-card-header"><i class="fas fa-hashtag"></i> Тренды</div>
+        <div class="sidebar-card-header"><i class="fas fa-hashtag"></i> Trends</div>
         <div id="trendingTags" style="padding:0.5rem">
-            <div style="color:var(--text3);font-size:0.82rem;padding:0.5rem">Загрузка...</div>
+            <div style="color:var(--text3);font-size:0.82rem;padding:0.5rem">Loading...</div>
         </div>
     </div>
 </div>
@@ -277,36 +277,36 @@ async function submitComment(e, postId) {
         const section = document.getElementById(`comments-${postId}`);
         const div = document.createElement('div');
         div.className = 'comment';
-        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${c.username}</a><div class="comment-text">${c.content}</div><div class="comment-time">только что</div></div>`;
+        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${c.username}</a><div class="comment-text">${c.content}</div><div class="comment-time">just now</div></div>`;
         section.insertBefore(div, section.lastElementChild);
     }
 }
 async function deletePost(postId) {
-    if (!confirm('Удалить пост?')) return;
+    if (!confirm('Delete this post?')) return;
     const res = await api(`/post/${postId}/delete`, 'DELETE');
     if (res?.success) { const el = document.getElementById(`post-${postId}`); el.style.opacity = '0'; el.style.transform = 'translateY(-10px)'; el.style.transition = 'all 0.3s'; setTimeout(() => el.remove(), 300); }
 }
 async function editPost(postId) {
     const contentEl = document.getElementById(`postContent-${postId}`);
     const current = contentEl.textContent.trim();
-    const newContent = prompt('Редактировать пост:', current);
+    const newContent = prompt('Edit post:', current);
     if (!newContent || newContent === current) return;
     const res = await api(`/post/${postId}/edit`, 'PUT', { content: newContent }, true);
     if (res?.success) contentEl.textContent = res.content;
 }
-function sharePost(url) { navigator.clipboard?.writeText(url).then(() => showToast('Ссылка скопирована!', 'success')); }
+function sharePost(url) { navigator.clipboard?.writeText(url).then(() => showToast('Link copied!', 'success')); }
 
 async function loadRecs() {
     try {
         const res = await fetch('/api/users/search?q=a');
         const users = await res.json();
         const el = document.getElementById('recommendations');
-        if (!users.length) { el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.85rem">Новых рекомендаций нет</div>'; return; }
+        if (!users.length) { el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.85rem">No new recommendations</div>'; return; }
         el.innerHTML = users.slice(0, 5).map(u => `
             <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem">
                 <img src="${u.avatar}" class="avatar avatar-sm">
                 <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:0.88rem;color:var(--text)">${u.username}</div></div>
-                <a href="/user/${u.username}" class="btn btn-secondary btn-sm" style="padding:0.25rem 0.65rem;font-size:0.75rem">Профиль</a>
+                <a href="/user/${u.username}" class="btn btn-secondary btn-sm" style="padding:0.25rem 0.65rem;font-size:0.75rem">Profile</a>
             </div>
         `).join('');
     } catch(e) {}
@@ -321,8 +321,8 @@ async function loadTrending() {
         const res = await fetch('/api/hashtags/trending');
         const tags = await res.json();
         const el = document.getElementById('trendingTags');
-        if (!tags.length) { el.innerHTML = '<div style="color:var(--text3);font-size:0.82rem;padding:0.5rem">Нет трендов</div>'; return; }
-        el.innerHTML = tags.slice(0,10).map(t => `<a href="/hashtag/${t.name}" style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.5rem;border-radius:8px;text-decoration:none;color:var(--text);transition:background 0.15s" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''"><span style="font-weight:600;color:var(--primary)">#${t.name}</span><span style="font-size:0.72rem;color:var(--text3)">${t.count} постов</span></a>`).join('');
+        if (!tags.length) { el.innerHTML = '<div style="color:var(--text3);font-size:0.82rem;padding:0.5rem">No trends</div>'; return; }
+        el.innerHTML = tags.slice(0,10).map(t => `<a href="/hashtag/${t.name}" style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.5rem;border-radius:8px;text-decoration:none;color:var(--text);transition:background 0.15s" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''"><span style="font-weight:600;color:var(--primary)">#${t.name}</span><span style="font-size:0.72rem;color:var(--text3)">${t.count} posts</span></a>`).join('');
     } catch(e) {}
 }
 loadTrending();

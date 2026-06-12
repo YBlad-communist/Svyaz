@@ -25,11 +25,11 @@
             </div>
             {% if current_user.id == profile_user.id %}
             <a href="{{ url_for('profile_edit') }}" class="btn btn-secondary btn-sm" style="background:rgba(255,255,255,0.2);border-color:rgba(255,255,255,0.4);color:white">
-                <i class="fas fa-edit"></i> Редактировать
+                <i class="fas fa-edit"></i> Edit
             </a>
             {% else %}
             <button onclick="followUser('{{ profile_user.username }}')" class="btn btn-sm {% if is_following %}btn-secondary{% else %}btn-primary{% endif %}" id="followBtn">
-                {% if is_following %}<i class="fas fa-user-check"></i> Подписан{% else %}<i class="fas fa-user-plus"></i> Подписаться{% endif %}
+                {% if is_following %}<i class="fas fa-user-check"></i> Following{% else %}<i class="fas fa-user-plus"></i> Follow{% endif %}
             </button>
             {% endif %}
         </div>
@@ -38,15 +38,15 @@
     <div class="profile-stats">
         <div class="profile-stat">
             <div class="profile-stat-num">{{ profile_user.posts.count() }}</div>
-            <div class="profile-stat-label">Постов</div>
+            <div class="profile-stat-label">Posts</div>
         </div>
         <div class="profile-stat">
             <div class="profile-stat-num">{{ profile_user.followers.count() }}</div>
-            <div class="profile-stat-label">Подписчиков</div>
+            <div class="profile-stat-label">Followers</div>
         </div>
         <div class="profile-stat">
             <div class="profile-stat-num">{{ profile_user.following.count() }}</div>
-            <div class="profile-stat-label">Подписок</div>
+            <div class="profile-stat-label">Following</div>
         </div>
     </div>
 
@@ -64,7 +64,7 @@
             {% if profile_user.location %}<span style="color:var(--text3);font-size:0.85rem"><i class="fas fa-map-marker-alt" style="color:var(--primary)"></i> {{ profile_user.location }}</span>{% endif %}
             {% if profile_user.website %}<a href="{{ profile_user.website }}" target="_blank" rel="noopener noreferrer" style="color:var(--primary);font-size:0.85rem"><i class="fas fa-link"></i> {{ profile_user.website }}</a>{% endif %}
             {% if profile_user.github_username %}<a href="https://github.com/{{ profile_user.github_username }}" target="_blank" rel="noopener noreferrer" style="color:#6e5494;font-size:0.85rem"><i class="fab fa-github"></i> {{ profile_user.github_username }}</a>{% endif %}
-            <span style="color:var(--text3);font-size:0.85rem"><i class="fas fa-calendar" style="color:var(--primary)"></i> с {{ profile_user.created_at.strftime('%B %Y') }}</span>
+            <span style="color:var(--text3);font-size:0.85rem">            <i class="fas fa-calendar" style="color:var(--primary)"></i> since {{ profile_user.created_at.strftime('%B %Y') }}</span>
         </div>
     </div>
     {% endif %}
@@ -72,7 +72,7 @@
     {% if current_user.id == profile_user.id %}
     <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;flex-wrap:wrap">
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-            <i class="fas fa-camera"></i> Сменить аватар
+            <i class="fas fa-camera"></i> Change avatar
             <form method="POST" action="{{ url_for('upload_avatar') }}" enctype="multipart/form-data" id="avatarForm" style="display:none">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="file" name="avatar" accept="image/*" onchange="if(validateFileSize(this, 5*1024*1024))document.getElementById('avatarForm').submit()">
@@ -119,7 +119,7 @@
 {% if not posts.items %}
 <div class="card" style="text-align:center;padding:2.5rem;color:var(--text3)">
     <div style="font-size:2.5rem;margin-bottom:0.75rem">✍️</div>
-    <div>Постов пока нет</div>
+    <div>No posts yet</div>
 </div>
 {% endif %}
 
@@ -130,20 +130,20 @@
     <div class="sidebar-card">
         <div class="card-body" style="display:flex;flex-direction:column;gap:0.6rem">
             <button onclick="followUser('{{ profile_user.username }}')" class="btn {% if is_following %}btn-secondary{% else %}btn-primary{% endif %} w-100" id="followBtn2">
-                {% if is_following %}<i class="fas fa-user-check"></i> Подписан{% else %}<i class="fas fa-user-plus"></i> Подписаться{% endif %}
+                {% if is_following %}<i class="fas fa-user-check"></i> Following{% else %}<i class="fas fa-user-plus"></i> Follow{% endif %}
             </button>
             <button onclick="startChat('{{ profile_user.username }}')" class="btn btn-secondary w-100">
-                <i class="fas fa-comment"></i> Написать
+                <i class="fas fa-comment"></i> Message
             </button>
         </div>
     </div>
     {% endif %}
     <div class="sidebar-card">
-        <div class="sidebar-card-header"><i class="fas fa-info-circle"></i> О пользователе</div>
+        <div class="sidebar-card-header"><i class="fas fa-info-circle"></i> About</div>
         <div style="padding:0.85rem 1rem;display:flex;flex-direction:column;gap:0.5rem">
             <div style="font-size:0.85rem;color:var(--text2)">
                 <i class="fas fa-calendar" style="color:var(--primary);width:16px"></i>
-                Зарегистрирован {{ profile_user.created_at.strftime('%d.%m.%Y') }}
+                Registered {{ profile_user.created_at.strftime('%d.%m.%Y') }}
             </div>
             {% if profile_user.location %}
             <div style="font-size:0.85rem;color:var(--text2)">
@@ -172,8 +172,8 @@ async function followUser(username) {
     ['followBtn','followBtn2'].forEach(function(id) {
         var btn = document.getElementById(id);
         if (!btn) return;
-        if (res.following) { btn.className = 'btn btn-secondary w-100'; btn.innerHTML = '<i class="fas fa-user-check"></i> Подписан'; }
-        else { btn.className = 'btn btn-primary w-100'; btn.innerHTML = '<i class="fas fa-user-plus"></i> Подписаться'; }
+        if (res.following) { btn.className = 'btn btn-secondary w-100'; btn.innerHTML = '<i class="fas fa-user-check"></i> Following'; }
+        else { btn.className = 'btn btn-primary w-100'; btn.innerHTML = '<i class="fas fa-user-plus"></i> Follow'; }
     });
 }
 async function startChat(username) {
@@ -187,7 +187,7 @@ async function likePost(postId, btn) {
     btn.classList.toggle('liked', res.liked);
     btn.querySelector('.like-count').textContent = res.count;
 }
-function sharePost(url) { if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function() { var t=document.createElement('div'); t.className='alert alert-success'; t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;min-width:220px;text-align:center;box-shadow:var(--shadow-lg)'; t.innerHTML='<i class="fas fa-check"></i> Ссылка скопирована!'; document.body.appendChild(t); setTimeout(function(){t.remove();},2500); }); } }
-async function deletePost(postId) { if (!confirm('Удалить этот пост?')) return; var res = await api('/post/'+postId+'/delete','DELETE'); if (res && res.success) { var el=document.getElementById('post-'+postId); if(el){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){el.remove();},300);} } }
+function sharePost(url) { if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function() { var t=document.createElement('div'); t.className='alert alert-success'; t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;min-width:220px;text-align:center;box-shadow:var(--shadow-lg)'; t.innerHTML='<i class="fas fa-check"></i> Link copied!'; document.body.appendChild(t); setTimeout(function(){t.remove();},2500); }); } }
+async function deletePost(postId) { if (!confirm('Delete this post?')) return; var res = await api('/post/'+postId+'/delete','DELETE'); if (res && res.success) { var el=document.getElementById('post-'+postId); if(el){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){el.remove();},300);} } }
 </script>
 {% endblock %}

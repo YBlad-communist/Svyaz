@@ -19,7 +19,7 @@ from flask_talisman import Talisman
 import redis
 
 from database import db
-from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants,PinnedMessage, Reaction, sanitize_html, validate_url,Hashtag, post_hashtags, Technology, Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes, idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite, channel_members, validate_email, validate_username
+from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants,PinnedMessage, Reaction, sanitize_html, validate_url, validate_password,Hashtag, post_hashtags, Technology, Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes, idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite, channel_members, validate_email, validate_username
 
 
 _secret_key = os.environ.get('SECRET_KEY')
@@ -87,8 +87,8 @@ def get_file_type(filepath):
 
 
 def safe_save_file(file, prefix, allowed_types=None):
-    """Сохраняет файл с проверкой MIME-типа.
-    allowed_types: 'image', 'video', 'file', или None (все разрешённые).
+    """Saves a file with MIME-type validation.
+    allowed_types: 'image', 'video', 'file', or None (all allowed).
     """
     if not file or file.filename == '':
         return None, None
@@ -143,7 +143,7 @@ except Exception:
     logger.exception('Unexpected error connecting to Redis')
 
 def get_real_ip():
-    """Извлекает реальный IP клиента с учётом X-Forwarded-For."""
+    """Extracts real client IP considering X-Forwarded-For."""
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         return forwarded.split(',')[0].strip()
@@ -197,7 +197,7 @@ def generate_csrf_token():
     return session['_csrf_token']
 
 def validate_csrf_token():
-    """Проверяет CSRF-токен из формы/JSON. Возвращает True если валиден."""
+    """Validates CSRF token from form/JSON. Returns True if valid."""
     token = session.get('_csrf_token')
     if not token:
         return False
@@ -209,7 +209,7 @@ def validate_csrf_token():
     return form_token is not None and secrets.compare_digest(token, form_token)
 
 def csrf_required(f):
-    """Декоратор: требует валидный CSRF-токен для POST/PUT/DELETE запросов."""
+    """Decorator: requires valid CSRF token for POST/PUT/DELETE requests."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if request.method in ('POST', 'PUT', 'DELETE'):
@@ -217,7 +217,7 @@ def csrf_required(f):
                 logger.warning('CSRF validation failed for %s from %s', request.path, request.remote_addr)
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                     return jsonify({'error': 'CSRF token invalid or missing'}), 403
-                flash('Ошибка проверки безопасности (CSRF). Обновите страницу.', 'error')
+                flash('Security check failed (CSRF). Please refresh the page.', 'error')
                 return redirect(request.referrer or url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
@@ -251,20 +251,21 @@ def before_request():
                 logger.warning('Brute-force lockout for IP %s (%s failed attempts)', real_ip, failed)
                 if request.is_json:
                     return jsonify({'error': 'Too many failed attempts. Try again in 15 minutes.'}), 429
-                flash('Слишком много неудачных попыток. Попробуйте через 15 минут.', 'error')
+                flash('Too many failed attempts. Please try again in 15 minutes.', 'error')
                 return redirect(url_for('login'))
         except Exception:
             logger.warning('Failed to check Redis failed_attempts for %s', real_ip)
 
 @app.teardown_appcontext
 def teardown_session(exception):
-    """Гарантирует закрытие сессии БД после каждого запроса."""
+    """Ensures DB session is closed after each request."""
     db.session.remove()
 
 @app.after_request
 def after_request(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
     return response
@@ -274,7 +275,7 @@ def after_request(response):
 # ------------------------------
 @app.errorhandler(404)
 def not_found(e):
-    return render_template('error.html', error_code=404, message="Страница не найдена"), 404
+    return render_template('error.html', error_code=404, message="Page not found"), 404
 
 @app.errorhandler(500)
 def internal_error(e):
@@ -284,16 +285,16 @@ def internal_error(e):
 
 @app.errorhandler(403)
 def forbidden(e):
-    return render_template('error.html', error_code=403, message="Доступ запрещён"), 403
+    return render_template('error.html', error_code=403, message="Access denied"), 403
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    """Глобальный обработчик — не раскрывает детали ошибок клиенту."""
+    """Global handler — does not expose error details to the client."""
     db.session.rollback()
     logger.error('Unhandled exception: %s', str(e), exc_info=True)
     if request.is_json:
         return jsonify({'error': 'Internal server error'}), 500
-    return render_template('error.html', error_code=500, message="Внутренняя ошибка сервера"), 500
+    return render_template('error.html', error_code=500, message="Internal server error"), 500
 
 @app.errorhandler(429)
 def ratelimit_error(e):
@@ -321,25 +322,23 @@ def register():
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
         if not username or not email or not password:
-            flash('Все поля обязательны', 'error')
+            flash('All fields are required', 'error')
             return redirect(url_for('register'))
         if not validate_username(username):
-            flash('Имя от 3 до 32 символов: буквы, цифры, _ и -', 'error')
+            flash('Username must be 3-32 characters: letters, digits, _ and -', 'error')
             return redirect(url_for('register'))
         if not validate_email(email):
-            flash('Некорректный email', 'error')
+            flash('Invalid email address', 'error')
             return redirect(url_for('register'))
-        if len(password) < 8:
-            flash('Пароль минимум 8 символов', 'error')
-            return redirect(url_for('register'))
-        if len(password) > 128:
-            flash('Пароль слишком длинный', 'error')
+        valid_pw, pw_msg = validate_password(password)
+        if not valid_pw:
+            flash(pw_msg, 'error')
             return redirect(url_for('register'))
         if User.query.filter_by(username=username).first():
-            flash('Пользователь уже существует', 'error')
+            flash('Username already taken', 'error')
             return redirect(url_for('register'))
         if User.query.filter_by(email=email).first():
-            flash('Email уже используется', 'error')
+            flash('Email already in use', 'error')
             return redirect(url_for('register'))
         user = User(username=username, email=email,
                     password_hash=generate_password_hash(password, method='pbkdf2:sha256', salt_length=16),
@@ -348,7 +347,7 @@ def register():
         db.session.add(user)
         db.session.commit()
         login_user(user)
-        flash('Регистрация успешна!', 'success')
+        flash('Registration successful!', 'success')
         return redirect(url_for('feed'))
     return render_template('register.html')
 
@@ -365,7 +364,7 @@ def login():
 
         user = User.query.filter_by(username=username, is_deleted=False).first()
         if user and user.is_blocked:
-            flash('Ваш аккаунт заблокирован', 'error')
+            flash('Your account has been blocked', 'error')
             return redirect(url_for('login'))
 
         if user and check_password_hash(user.password_hash, password):
@@ -378,7 +377,7 @@ def login():
                     redis_client.delete(f"failed_attempts:{real_ip}")
                 except Exception:
                     logger.warning('Failed to clear failed attempts for %s', real_ip)
-            flash('Добро пожаловать!', 'success')
+            flash('Welcome!', 'success')
             return redirect(url_for('feed'))
         else:
             if redis_available:
@@ -389,7 +388,7 @@ def login():
                         logger.warning('Brute-force threshold reached for IP %s', real_ip)
                 except Exception:
                     logger.warning('Failed to track failed attempts for IP %s', real_ip)
-            flash('Неверное имя или пароль', 'error')
+            flash('Invalid username or password', 'error')
     return render_template('login.html')
 
 @app.route('/logout')
@@ -421,10 +420,10 @@ def create_post():
     if 'media' in request.files:
         media_url, media_type = safe_save_file(request.files['media'], 'post')
     if not content and not media_url:
-        flash('Пост не может быть пустым', 'error')
+        flash('Post cannot be empty', 'error')
         return redirect(request.referrer or url_for('feed'))
     if len(content) > 10000:
-        flash('Пост слишком длинный', 'error')
+        flash('Post is too long', 'error')
         return redirect(request.referrer or url_for('feed'))
     clean = sanitize_html(content)
     post = Post(content=clean, media_url=media_url, media_type=media_type, user_id=current_user.id)
@@ -435,9 +434,9 @@ def create_post():
         db.session.commit()
     except Exception:
         db.session.rollback()
-        flash('Ошибка при создании поста', 'error')
+        flash('Error creating post', 'error')
         return redirect(request.referrer or url_for('feed'))
-    flash('Пост опубликован!', 'success')
+    flash('Post published!', 'success')
     return redirect(url_for('feed'))
 
 @app.route('/post/<int:post_id>')
@@ -456,7 +455,7 @@ def view_post(post_id):
 def like_post(post_id):
     post = db.session.get(Post, post_id)
     if not post:
-        return jsonify({'error': 'Пост не найден'}), 404
+        return jsonify({'error': 'Post not found'}), 404
     like = Like.query.filter_by(user_id=current_user.id, post_id=post_id).first()
     if like:
         db.session.delete(like)
@@ -467,14 +466,14 @@ def like_post(post_id):
         liked = True
         if post.user_id != current_user.id:
             notif = Notification(user_id=post.user_id, type='like',
-                                 content=f"{current_user.username} лайкнул ваш пост",
+                                  content=f"{current_user.username} liked your post",
                                  link=f"/post/{post_id}")
             db.session.add(notif)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        return jsonify({'error': 'Server error'}), 500
     return jsonify({'liked': liked, 'count': post.likes.count()})
 
 @app.route('/post/<int:post_id>/comment', methods=['POST'])
@@ -484,7 +483,7 @@ def like_post(post_id):
 def add_comment(post_id):
     post = db.session.get(Post, post_id)
     if not post:
-        return jsonify({'error': 'Пост не найден'}), 404
+        return jsonify({'error': 'Post not found'}), 404
     content = request.form.get('content', '').strip()
     if not content or len(content) > 5000:
         return jsonify({'error': 'Comment empty or too long'}), 400
@@ -492,14 +491,14 @@ def add_comment(post_id):
     db.session.add(comment)
     if post.user_id != current_user.id:
         notif = Notification(user_id=post.user_id, type='comment',
-                             content=f"{current_user.username} прокомментировал: {content[:50]}",
+                              content=f"{current_user.username} commented: {content[:50]}",
                              link=f"/post/{post_id}")
         db.session.add(notif)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        return jsonify({'error': 'Server error'}), 500
     return jsonify({
         'success': True,
         'comment': {
@@ -518,17 +517,17 @@ def add_comment(post_id):
 def edit_post(post_id):
     post = db.session.get(Post, post_id)
     if not post:
-        return jsonify({'error': 'Пост не найден'}), 404
+        return jsonify({'error': 'Post not found'}), 404
     if post.user_id != current_user.id:
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({'error': 'Неверный формат данных'}), 400
+        return jsonify({'error': 'Invalid data format'}), 400
     new_content = data.get('content', '').strip()
     if not new_content:
-        return jsonify({'error': 'Содержимое не может быть пустым'}), 400
+        return jsonify({'error': 'Content cannot be empty'}), 400
     if len(new_content) > 10000:
-        return jsonify({'error': 'Слишком длинный пост'}), 400
+        return jsonify({'error': 'Post is too long'}), 400
     post.content = sanitize_html(new_content)
     post.updated_at = datetime.utcnow()
     db.session.commit()
@@ -540,9 +539,9 @@ def edit_post(post_id):
 def delete_post(post_id):
     post = db.session.get(Post, post_id)
     if not post:
-        return jsonify({'error': 'Пост не найден'}), 404
+        return jsonify({'error': 'Post not found'}), 404
     if not current_user.can_delete_post(post):
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     db.session.delete(post)
     db.session.commit()
     return jsonify({'success': True})
@@ -566,19 +565,19 @@ def profile(username):
 @csrf_required
 def upload_avatar():
     if 'avatar' not in request.files:
-        flash('Файл не выбран', 'error')
+        flash('No file selected', 'error')
         return redirect(url_for('profile', username=current_user.username))
     file = request.files['avatar']
     if not file or file.filename == '':
-        flash('Файл не выбран', 'error')
+        flash('No file selected', 'error')
         return redirect(url_for('profile', username=current_user.username))
     url, _ = safe_save_file(file, f"user_{current_user.id}")
     if url:
         current_user.avatar = url
         db.session.commit()
-        flash('Аватар обновлён!', 'success')
+        flash('Avatar updated!', 'success')
     else:
-        flash('Недопустимый формат', 'error')
+        flash('Invalid format', 'error')
     return redirect(url_for('profile', username=current_user.username))
 
 @app.route('/update_profile', methods=['POST'])
@@ -599,7 +598,7 @@ def update_profile():
     current_user.github_username = github_username[:39] if github_username else None
     current_user.developer_role = developer_role
     db.session.commit()
-    flash('Профиль обновлён', 'success')
+    flash('Profile updated', 'success')
     return redirect(url_for('profile', username=current_user.username))
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
@@ -610,7 +609,7 @@ def profile_edit():
     user_tech_ids = {t.id for t in current_user.tech_stack.all()}
     tech_by_category = {}
     for t in technologies:
-        cat = t.category or 'Другое'
+        cat = t.category or 'Other'
         tech_by_category.setdefault(cat, []).append(t)
     developer_roles_dict = {}
     for r in Role.query.order_by(Role.name).all():
@@ -632,7 +631,7 @@ def profile_edit():
         selected_techs = request.form.getlist('technologies')
         current_user.tech_stack = Technology.query.filter(Technology.id.in_(selected_techs)).all() if selected_techs else []
         db.session.commit()
-        flash('Профиль обновлён', 'success')
+        flash('Profile updated', 'success')
         return redirect(url_for('profile', username=current_user.username))
     return render_template('profile_edit.html', tech_by_category=tech_by_category,
                            user_tech_ids=user_tech_ids, developer_roles=developer_roles_dict)
@@ -644,7 +643,7 @@ def delete_account():
     current_user.anonymize()
     db.session.commit()
     logout_user()
-    flash('Аккаунт удалён', 'success')
+    flash('Account deleted', 'success')
     return redirect(url_for('index'))
 
 @app.route('/user/<username>/follow', methods=['POST'])
@@ -664,14 +663,14 @@ def follow_user(username):
         db.session.add(follow)
         following = True
         notif = Notification(user_id=user.id, type='follow',
-                             content=f"{current_user.username} подписался на вас",
+                              content=f"{current_user.username} followed you",
                              link=f"/user/{current_user.username}")
         db.session.add(notif)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        return jsonify({'error': 'Server error'}), 500
     return jsonify({
         'following': following,
         'followers_count': user.followers.count(),
@@ -773,11 +772,11 @@ def ideas_feed():
                            type_filter=type_filter, project_types=PROJECT_TYPE_LABELS)
 
 PROJECT_TYPE_LABELS = {
-    'game': 'Игра', 'website': 'Сайт', 'app': 'Приложение',
-    'library': 'Библиотека', 'framework': 'Фреймворк', 'cli': 'CLI-утилита',
-    'api': 'API / Сервис', 'plugin': 'Плагин', 'bot': 'Бот',
-    'saas': 'SaaS', 'browser-ext': 'Браузерное расширение',
-    'desktop': 'Десктоп', 'embedded': 'Embedded', 'other': 'Другое',
+    'game': 'Game', 'website': 'Website', 'app': 'Application',
+    'library': 'Library', 'framework': 'Framework', 'cli': 'CLI Tool',
+    'api': 'API / Service', 'plugin': 'Plugin', 'bot': 'Bot',
+    'saas': 'SaaS', 'browser-ext': 'Browser Extension',
+    'desktop': 'Desktop', 'embedded': 'Embedded', 'other': 'Other',
 }
 
 @app.route('/idea/create', methods=['GET', 'POST'])
@@ -789,7 +788,7 @@ def idea_create():
     roles = Role.query.order_by(Role.name).all()
     tech_by_category = {}
     for t in technologies:
-        cat = t.category or 'Другое'
+        cat = t.category or 'Other'
         tech_by_category.setdefault(cat, []).append(t)
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
@@ -806,15 +805,15 @@ def idea_create():
             if 'github.com' not in github_url.lower():
                 github_url = ''
         if not title or not description:
-            flash('Название и описание обязательны', 'error')
+            flash('Title and description are required', 'error')
             return render_template('idea_create.html', tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS)
         if len(title) > 200:
-            flash('Название слишком длинное', 'error')
+            flash('Title is too long', 'error')
             return render_template('idea_create.html', tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS)
         if len(description) > 10000:
-            flash('Описание слишком длинное', 'error')
+            flash('Description is too long', 'error')
             return render_template('idea_create.html', tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS)
         try:
@@ -833,18 +832,18 @@ def idea_create():
                 rs = Role.query.filter(Role.id.in_(selected_roles)).all()
                 for r in rs:
                     idea.roles_needed.append(r)
-            group_chat = Chat(is_group=True, name=f"Чат идеи: {title[:50]}", admin_id=current_user.id, idea_id=idea.id)
+            group_chat = Chat(is_group=True, name=f"Idea Chat: {title[:50]}", admin_id=current_user.id, idea_id=idea.id)
             db.session.add(group_chat)
             group_chat.participants.append(current_user)
             db.session.flush()
             idea.chat_id = group_chat.id
             db.session.commit()
-            flash('Идея создана! Командный чат доступен.', 'success')
+            flash('Idea created! Team chat is available.', 'success')
             return redirect(url_for('idea_detail', idea_id=idea.id))
         except Exception as e:
             db.session.rollback()
             logger.error('Idea create error: %s', e, exc_info=True)
-            flash('Ошибка при создании идеи', 'error')
+            flash('Error creating idea', 'error')
             return render_template('idea_create.html', tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS)
     return render_template('idea_create.html', tech_by_category=tech_by_category,
@@ -879,7 +878,7 @@ def idea_detail(idea_id):
 def idea_like(idea_id):
     idea = db.session.get(Idea, idea_id)
     if not idea or not idea.is_active:
-        return jsonify({'error': 'Идея не активна'}), 404
+        return jsonify({'error': 'Idea is not active'}), 404
     existing = idea.likers.filter_by(id=current_user.id).first()
     if existing:
         idea.likers.remove(existing)
@@ -889,14 +888,14 @@ def idea_like(idea_id):
         liked = True
         if idea.author_id != current_user.id:
             notif = Notification(user_id=idea.author_id, type='like',
-                                 content=f"{current_user.username} поддержал вашу идею",
+                                 content=f"{current_user.username} supported your idea",
                                  link=f"/idea/{idea_id}")
             db.session.add(notif)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        return jsonify({'error': 'Server error'}), 500
     return jsonify({'liked': liked, 'count': idea.likes_count})
 
 @app.route('/idea/<int:idea_id>/join', methods=['POST'])
@@ -906,30 +905,30 @@ def idea_like(idea_id):
 def idea_join_request(idea_id):
     idea = db.session.get(Idea, idea_id)
     if not idea or not idea.is_active:
-        return jsonify({'error': 'Идея не активна'}), 404
+        return jsonify({'error': 'Idea is not active'}), 404
     if idea.author_id == current_user.id:
-        flash('Вы автор идеи', 'info')
+        flash('You are the author of this idea', 'info')
         return redirect(url_for('idea_detail', idea_id=idea_id))
     existing = db.session.query(idea_join_requests).filter_by(
         idea_id=idea.id, user_id=current_user.id
     ).first()
     if existing:
         if existing.status == 'pending':
-            flash('Заявка уже подана', 'info')
+            flash('Request already submitted', 'info')
         elif existing.status == 'approved':
-            flash('Вы уже в группе обсуждения', 'info')
+            flash('You are already in the discussion group', 'info')
         else:
-            flash('Ваша заявка была отклонена', 'error')
+            flash('Your request was rejected', 'error')
         return redirect(url_for('idea_detail', idea_id=idea_id))
     db.session.execute(idea_join_requests.insert().values(
         idea_id=idea.id, user_id=current_user.id, status='pending', created_at=datetime.utcnow()
     ))
     notif = Notification(user_id=idea.author_id, type='follow',
-                         content=f"{current_user.username} хочет присоединиться к обсуждению идеи",
+                         content=f"{current_user.username} wants to join the idea discussion",
                          link=f"/idea/{idea_id}")
     db.session.add(notif)
     db.session.commit()
-    flash('Заявка на участие отправлена!', 'success')
+    flash('Join request sent!', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
 
 @app.route('/idea/<int:idea_id>/join/<int:user_id>/approve', methods=['POST'])
@@ -940,9 +939,9 @@ def idea_approve_join(idea_id, user_id):
     if not idea:
         abort(404)
     if idea.author_id != current_user.id:
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     if user_id == current_user.id:
-        return jsonify({'error': 'Нельзя одобрить свою заявку'}), 400
+        return jsonify({'error': 'Cannot approve your own request'}), 400
     db.session.execute(idea_join_requests.update().where(
         idea_join_requests.c.idea_id == idea.id,
         idea_join_requests.c.user_id == user_id,
@@ -955,7 +954,7 @@ def idea_approve_join(idea_id, user_id):
             if user and user not in chat.participants:
                 chat.participants.append(user)
     db.session.commit()
-    flash('Участник добавлен в группу', 'success')
+    flash('Member added to group', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
 
 @app.route('/idea/<int:idea_id>/join/<int:user_id>/reject', methods=['POST'])
@@ -966,14 +965,14 @@ def idea_reject_join(idea_id, user_id):
     if not idea:
         abort(404)
     if idea.author_id != current_user.id:
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     db.session.execute(idea_join_requests.update().where(
         idea_join_requests.c.idea_id == idea.id,
         idea_join_requests.c.user_id == user_id,
         idea_join_requests.c.status == 'pending'
     ).values(status='rejected'))
     db.session.commit()
-    flash('Заявка отклонена', 'success')
+    flash('Request rejected', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
 
 @app.route('/idea/<int:idea_id>/delete', methods=['POST'])
@@ -988,7 +987,7 @@ def idea_delete(idea_id):
         abort(403)
     idea.is_active = False
     db.session.commit()
-    flash('Идея удалена', 'success')
+    flash('Idea deleted', 'success')
     return redirect(url_for('ideas_feed'))
 
 @app.route('/idea/<int:idea_id>/edit', methods=['GET', 'POST'])
@@ -1005,7 +1004,7 @@ def idea_edit(idea_id):
     roles = Role.query.order_by(Role.name).all()
     tech_by_category = {}
     for t in technologies:
-        cat = t.category or 'Другое'
+        cat = t.category or 'Other'
         tech_by_category.setdefault(cat, []).append(t)
     user_tech_ids = {t.id for t in idea.technologies}
     user_role_ids = {r.id for r in idea.roles_needed}
@@ -1024,17 +1023,17 @@ def idea_edit(idea_id):
             if 'github.com' not in github_url.lower():
                 github_url = ''
         if not title or not description:
-            flash('Название и описание обязательны', 'error')
+            flash('Title and description are required', 'error')
             return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS,
                                    user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
         if len(title) > 200:
-            flash('Название слишком длинное', 'error')
+            flash('Title is too long', 'error')
             return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS,
                                    user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
         if len(description) > 10000:
-            flash('Описание слишком длинное', 'error')
+            flash('Description is too long', 'error')
             return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
                                    roles=roles, project_types=PROJECT_TYPE_LABELS,
                                    user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
@@ -1046,12 +1045,12 @@ def idea_edit(idea_id):
             idea.technologies = Technology.query.filter(Technology.id.in_(selected_techs)).all() if selected_techs else []
             idea.roles_needed = Role.query.filter(Role.id.in_(selected_roles)).all() if selected_roles else []
             db.session.commit()
-            flash('Идея обновлена!', 'success')
+            flash('Idea updated!', 'success')
             return redirect(url_for('idea_detail', idea_id=idea.id))
         except Exception as e:
             db.session.rollback()
             logger.error('Idea edit error: %s', e, exc_info=True)
-            flash('Ошибка при обновлении идеи', 'error')
+            flash('Error updating idea', 'error')
     return render_template('idea_edit.html', idea=idea, tech_by_category=tech_by_category,
                            roles=roles, project_types=PROJECT_TYPE_LABELS,
                            user_tech_ids=user_tech_ids, user_role_ids=user_role_ids)
@@ -1097,16 +1096,16 @@ def channel_create():
         if channel_type not in ('public', 'private'):
             channel_type = 'public'
         if not name or not title:
-            flash('Название и адрес обязательны', 'error')
+            flash('Name and handle are required', 'error')
             return render_template('channel_create.html')
         if not name.replace('_', '').replace('-', '').isalnum():
-            flash('Адрес может содержать только буквы, цифры, _ и -', 'error')
+            flash('Handle can only contain letters, digits, _ and -', 'error')
             return render_template('channel_create.html')
         if len(name) > 50:
-            flash('Адрес слишком длинный', 'error')
+            flash('Handle is too long', 'error')
             return render_template('channel_create.html')
         if Channel.query.filter_by(name=name).first():
-            flash('Такой адрес уже занят', 'error')
+            flash('Handle is already taken', 'error')
             return render_template('channel_create.html')
         channel = Channel(
             name=name, title=sanitize_html(title),
@@ -1120,7 +1119,7 @@ def channel_create():
             role='admin', status='active', joined_at=datetime.utcnow()
         ))
         db.session.commit()
-        flash('Канал создан!', 'success')
+        flash('Channel created!', 'success')
         return redirect(url_for('channel_page', channel_name=name))
     return render_template('channel_create.html')
 
@@ -1132,7 +1131,7 @@ def channel_page(channel_name):
         membership = channel.get_membership(current_user)
         if not membership or membership.status != 'active':
             if not channel.is_admin(current_user):
-                flash('Это приватный канал', 'error')
+                flash('This is a private channel', 'error')
                 return redirect(url_for('channels_list'))
     page = request.args.get('page', 1, int)
     per_page = 20
@@ -1167,10 +1166,10 @@ def channel_join(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     existing = channel.get_membership(current_user)
     if existing and existing.status == 'active':
-        flash('Вы уже участник', 'info')
+        flash('You are already a member', 'info')
         return redirect(url_for('channel_page', channel_name=channel_name))
     if existing and existing.status == 'pending':
-        flash('Заявка уже подана', 'info')
+        flash('Request already submitted', 'info')
         return redirect(url_for('channel_page', channel_name=channel_name))
     if channel.type == 'public':
         db.session.execute(channel_members.insert().values(
@@ -1178,14 +1177,14 @@ def channel_join(channel_name):
             role='member', status='active', joined_at=datetime.utcnow()
         ))
         db.session.commit()
-        flash('Вы вступили в канал!', 'success')
+        flash('You joined the channel!', 'success')
     else:
         db.session.execute(channel_members.insert().values(
             channel_id=channel.id, user_id=current_user.id,
             role='member', status='pending', joined_at=datetime.utcnow()
         ))
         db.session.commit()
-        flash('Заявка на вступление отправлена', 'success')
+        flash('Join request sent', 'success')
     return redirect(url_for('channel_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/leave', methods=['POST'])
@@ -1201,7 +1200,7 @@ def channel_leave(channel_name):
         channel_members.c.user_id == current_user.id
     ))
     db.session.commit()
-    flash('Вы покинули канал', 'success')
+    flash('You left the channel', 'success')
     return redirect(url_for('channels_list'))
 
 @app.route('/channel/<channel_name>/post', methods=['POST'])
@@ -1211,14 +1210,14 @@ def channel_leave(channel_name):
 def channel_post_create(channel_name):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if not channel.can_post(current_user):
-        flash('Только участники могут публиковать', 'error')
+        flash('Only members can post', 'error')
         return redirect(url_for('channel_page', channel_name=channel_name))
     content = request.form.get('content', '').strip()
     if not content:
-        flash('Пост не может быть пустым', 'error')
+        flash('Post cannot be empty', 'error')
         return redirect(url_for('channel_page', channel_name=channel_name))
     if len(content) > 10000:
-        flash('Пост слишком длинный', 'error')
+        flash('Post is too long', 'error')
         return redirect(url_for('channel_page', channel_name=channel_name))
     media_url, media_type = None, None
     if 'media' in request.files:
@@ -1229,8 +1228,16 @@ def channel_post_create(channel_name):
     )
     db.session.add(post)
     db.session.commit()
-    flash('Пост опубликован!', 'success')
+    flash('Post published!', 'success')
     return redirect(url_for('channel_page', channel_name=channel_name))
+
+def _check_channel_access(channel):
+    """For private channels, ensure the current user is an active member."""
+    if channel.type == 'private':
+        membership = channel.get_membership(current_user)
+        if not membership or membership.status != 'active':
+            return False
+    return True
 
 @app.route('/channel/<channel_name>/post/<int:post_id>/like', methods=['POST'])
 @login_required
@@ -1243,6 +1250,8 @@ def channel_post_like(channel_name, post_id):
     channel = Channel.query.filter_by(name=channel_name).first()
     if not channel or post.channel_id != channel.id:
         return jsonify({'error': 'Not found'}), 404
+    if not _check_channel_access(channel):
+        return jsonify({'error': 'Not found'}), 404
     existing = ChannelPostLike.query.filter_by(post_id=post_id, user_id=current_user.id).first()
     if existing:
         db.session.delete(existing)
@@ -1254,7 +1263,7 @@ def channel_post_like(channel_name, post_id):
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        return jsonify({'error': 'Server error'}), 500
     return jsonify({'liked': liked, 'count': post.likes_count})
 
 @app.route('/channel/<channel_name>/post/<int:post_id>/comment', methods=['POST'])
@@ -1268,6 +1277,8 @@ def channel_post_comment(channel_name, post_id):
     channel = Channel.query.filter_by(name=channel_name).first()
     if not channel or post.channel_id != channel.id:
         return jsonify({'error': 'Not found'}), 404
+    if not _check_channel_access(channel):
+        return jsonify({'error': 'Not found'}), 404
     content = request.form.get('content', '').strip()
     if not content or len(content) > 5000:
         return jsonify({'error': 'Invalid content'}), 400
@@ -1278,7 +1289,7 @@ def channel_post_comment(channel_name, post_id):
         db.session.commit()
     except Exception:
         db.session.rollback()
-        return jsonify({'error': 'Ошибка сервера'}), 500
+        return jsonify({'error': 'Server error'}), 500
     return jsonify({
         'success': True,
         'comment': {
@@ -1298,11 +1309,13 @@ def channel_post_delete(channel_name, post_id):
     channel = Channel.query.filter_by(name=channel_name).first_or_404()
     if post.channel_id != channel.id:
         abort(404)
+    if not _check_channel_access(channel):
+        return jsonify({'error': 'No permission'}), 403
     if post.author_id != current_user.id and not channel.is_admin(current_user):
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     db.session.delete(post)
     db.session.commit()
-    flash('Пост удалён', 'success')
+    flash('Post deleted', 'success')
     return redirect(url_for('channel_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/edit', methods=['GET', 'POST'])
@@ -1330,7 +1343,7 @@ def channel_edit(channel_name):
             if url:
                 channel.cover_url = url
         db.session.commit()
-        flash('Канал обновлён', 'success')
+        flash('Channel updated', 'success')
         return redirect(url_for('channel_page', channel_name=channel_name))
     return render_template('channel_edit.html', channel=channel)
 
@@ -1374,7 +1387,7 @@ def channel_change_role(channel_name, user_id):
         channel_members.c.user_id == user_id
     ).values(role=new_role))
     db.session.commit()
-    flash(f'Роль {target.username} изменена на {new_role}', 'success')
+    flash(f'Role for {target.username} changed to {new_role}', 'success')
     return redirect(url_for('channel_members_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/member/<int:user_id>/ban', methods=['POST'])
@@ -1389,7 +1402,7 @@ def channel_ban_member(channel_name, user_id):
         channel_members.c.user_id == user_id
     ).values(status='banned'))
     db.session.commit()
-    flash('Пользователь заблокирован в канале', 'success')
+    flash('User banned from channel', 'success')
     return redirect(url_for('channel_members_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/member/<int:user_id>/remove', methods=['POST'])
@@ -1404,7 +1417,7 @@ def channel_remove_member(channel_name, user_id):
         channel_members.c.user_id == user_id
     ))
     db.session.commit()
-    flash('Пользователь удалён из канала', 'success')
+    flash('User removed from channel', 'success')
     return redirect(url_for('channel_members_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/requests/<int:user_id>/approve', methods=['POST'])
@@ -1420,7 +1433,7 @@ def channel_approve_request(channel_name, user_id):
         channel_members.c.status == 'pending'
     ).values(status='active'))
     db.session.commit()
-    flash('Заявка одобрена', 'success')
+    flash('Request approved', 'success')
     return redirect(url_for('channel_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/requests/<int:user_id>/reject', methods=['POST'])
@@ -1436,7 +1449,7 @@ def channel_reject_request(channel_name, user_id):
         channel_members.c.status == 'pending'
     ))
     db.session.commit()
-    flash('Заявка отклонена', 'success')
+    flash('Request rejected', 'success')
     return redirect(url_for('channel_page', channel_name=channel_name))
 
 @app.route('/channel/<channel_name>/invite/create', methods=['POST'])
@@ -1459,7 +1472,7 @@ def channel_create_invite(channel_name):
     db.session.add(invite)
     db.session.commit()
     invite_url = url_for('channel_accept_invite', token=token, _external=True)
-    flash(f'Пригласительная ссылка создана: {invite_url}', 'success')
+    flash(f'Invite link created: {invite_url}', 'success')
     return redirect(url_for('channel_page', channel_name=channel_name))
 
 @app.route('/channel/invite/<token>')
@@ -1467,17 +1480,17 @@ def channel_create_invite(channel_name):
 def channel_accept_invite(token):
     invite = ChannelInvite.query.filter_by(token=token).first_or_404()
     if invite.used_at:
-        flash('Приглашение уже использовано', 'error')
+        flash('Invite already used', 'error')
         return redirect(url_for('channels_list'))
     if invite.expires_at and invite.expires_at < datetime.utcnow():
-        flash('Приглашение истекло', 'error')
+        flash('Invite expired', 'error')
         return redirect(url_for('channels_list'))
     channel = db.session.get(Channel, invite.channel_id)
     if not channel:
         abort(404)
     existing = channel.get_membership(current_user)
     if existing and existing.status == 'active':
-        flash('Вы уже участник', 'info')
+        flash('You are already a member', 'info')
         return redirect(url_for('channel_page', channel_name=channel.name))
     if existing:
         db.session.execute(channel_members.update().where(
@@ -1491,7 +1504,7 @@ def channel_accept_invite(token):
         ))
     invite.used_at = datetime.utcnow()
     db.session.commit()
-    flash(f'Вы вступили в канал "{channel.title}"!', 'success')
+    flash(f'You joined "{channel.title}"!', 'success')
     return redirect(url_for('channel_page', channel_name=channel.name))
 
 # ------------------------------
@@ -1510,7 +1523,7 @@ def create_group():
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         if not name:
-            flash('Название обязательно', 'error')
+            flash('Name is required', 'error')
             return redirect(url_for('create_group'))
         chat = Chat(is_group=True, name=name, admin_id=current_user.id)
         db.session.add(chat)
@@ -1524,7 +1537,7 @@ def create_group():
             if url:
                 chat.avatar = url
         db.session.commit()
-        flash('Группа создана!', 'success')
+        flash('Group created!', 'success')
         return redirect(url_for('chats'))
     users = User.query.filter(User.id != current_user.id, User.is_deleted == False).limit(50).all()
     return render_template('create_group.html', users=users)
@@ -1545,7 +1558,7 @@ def add_group_members(chat_id):
             chat.participants.append(user)
             added.append(uname)
     db.session.commit()
-    flash(f'Добавлены: {", ".join(added)}', 'success')
+    flash(f'Added: {", ".join(added)}', 'success')
     return redirect(url_for('chats', chat=chat_id))
 
 # ------------------------------
@@ -1647,7 +1660,7 @@ def send_message(chat_id):
         media_url, media_type = safe_save_file(request.files['media'], f"msg_{secrets.token_urlsafe(8)}")
     reply_to_id = request.form.get('reply_to', type=int)
     if not content and not media_url:
-        return jsonify({'error': 'Пустое сообщение'}), 400
+        return jsonify({'error': 'Empty message'}), 400
     msg = Message(content=sanitize_html(content), media_url=media_url, media_type=media_type,
                   sender_id=current_user.id, chat_id=chat.id)
     if reply_to_id:
@@ -1660,7 +1673,7 @@ def send_message(chat_id):
     for p in chat.participants:
         if p.id != current_user.id:
             notif = Notification(user_id=p.id, type='message',
-                                 content=f"Новое сообщение от {current_user.username}",
+                                  content=f"New message from {current_user.username}",
                                  link=f"/chats?chat={chat.id}")
             db.session.add(notif)
     db.session.commit()
@@ -1680,17 +1693,17 @@ def send_message(chat_id):
 def edit_message(chat_id, message_id):
     msg = db.session.get(Message, message_id)
     if not msg:
-        return jsonify({'error': 'Сообщение не найдено'}), 404
+        return jsonify({'error': 'Message not found'}), 404
     if msg.sender_id != current_user.id or msg.chat_id != chat_id:
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     if datetime.utcnow() - msg.created_at > timedelta(minutes=5):
-        return jsonify({'error': 'Время редактирования истекло'}), 403
+        return jsonify({'error': 'Edit time expired'}), 403
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({'error': 'Неверный формат данных'}), 400
+        return jsonify({'error': 'Invalid data format'}), 400
     new_content = data.get('content', '').strip()
     if not new_content:
-        return jsonify({'error': 'Сообщение не может быть пустым'}), 400
+        return jsonify({'error': 'Message cannot be empty'}), 400
     msg.content = sanitize_html(new_content)
     msg.is_edited = True
     msg.edited_at = datetime.utcnow()
@@ -1703,12 +1716,12 @@ def edit_message(chat_id, message_id):
 def delete_message(chat_id, message_id):
     msg = db.session.get(Message, message_id)
     if not msg:
-        return jsonify({'error': 'Сообщение не найдено'}), 404
+        return jsonify({'error': 'Message not found'}), 404
     chat = db.session.get(Chat, chat_id)
     if not chat:
-        return jsonify({'error': 'Чат не найден'}), 404
+        return jsonify({'error': 'Chat not found'}), 404
     if msg.sender_id != current_user.id and not (chat.is_group and chat.admin_id == current_user.id):
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     db.session.delete(msg)
     db.session.commit()
     return jsonify({'success': True})
@@ -1785,12 +1798,12 @@ def get_group_members(chat_id):
 def remove_group_member(chat_id):
     chat = db.session.get(Chat, chat_id)
     if not chat:
-        return jsonify({'error': 'Чат не найден'}), 404
+        return jsonify({'error': 'Chat not found'}), 404
     if not chat.is_group or chat.admin_id != current_user.id:
         return jsonify({'error': 'Forbidden'}), 403
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({'error': 'Неверный формат данных'}), 400
+        return jsonify({'error': 'Invalid data format'}), 400
     user = db.session.get(User, data.get('user_id'))
     if not user or user not in chat.participants:
         return jsonify({'error': 'User not in group'}), 404
@@ -1905,12 +1918,12 @@ def github_repos(username):
 @csrf_required
 def block_user(user_id):
     if current_user.role not in ('admin', 'moderator'):
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     user = db.session.get(User, user_id)
     if not user:
-        return jsonify({'error': 'Пользователь не найден'}), 404
+        return jsonify({'error': 'User not found'}), 404
     if user.id == current_user.id:
-        return jsonify({'error': 'Нельзя заблокировать себя'}), 400
+        return jsonify({'error': 'Cannot block yourself'}), 400
     user.is_blocked = True
     db.session.commit()
     return jsonify({'success': True})
@@ -1920,18 +1933,18 @@ def block_user(user_id):
 @csrf_required
 def set_user_role(user_id):
     if current_user.role != 'admin':
-        return jsonify({'error': 'Нет прав'}), 403
+        return jsonify({'error': 'No permission'}), 403
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({'error': 'Неверный формат данных'}), 400
+        return jsonify({'error': 'Invalid data format'}), 400
     new_role = data.get('role')
     if new_role not in ['admin', 'moderator', 'betatester', 'default']:
-        return jsonify({'error': 'Недопустимая роль'}), 400
+        return jsonify({'error': 'Invalid role'}), 400
     target_user = db.session.get(User, user_id)
     if not target_user:
-        return jsonify({'error': 'Пользователь не найден'}), 404
+        return jsonify({'error': 'User not found'}), 404
     if target_user.id == current_user.id:
-        return jsonify({'error': 'Нельзя изменить свою роль'}), 400
+        return jsonify({'error': 'Cannot change your own role'}), 400
     target_user.role = new_role
     db.session.commit()
     return jsonify({'success': True, 'new_role': new_role})
@@ -1969,7 +1982,7 @@ def hashtag_feed(tag_name):
     tag_name = tag_name.lower().lstrip('#')
     ht = Hashtag.query.filter_by(name=tag_name).first()
     if not ht:
-        flash(f'Хештег #{tag_name} не найден', 'error')
+        flash(f'Hashtag #{tag_name} not found', 'error')
         return redirect(url_for('feed'))
     page = request.args.get('page', 1, int)
     posts = ht.posts.order_by(Post.created_at.desc()).paginate(page=page, per_page=20, error_out=False)
@@ -1996,7 +2009,7 @@ def search_hashtags():
 # ------------------------------
 def seed_default_data():
     default_techs = [
-        # Языки программирования
+        # Programming Languages
         ('Python', 'language'), ('JavaScript', 'language'), ('TypeScript', 'language'),
         ('C', 'language'), ('C++', 'language'), ('C#', 'language'),
         ('Java', 'language'), ('Kotlin', 'language'), ('Scala', 'language'),
@@ -2009,7 +2022,7 @@ def seed_default_data():
         ('Groovy', 'language'), ('Objective-C', 'language'), ('F#', 'language'),
         ('VB.NET', 'language'), ('Delphi', 'language'), ('OCaml', 'language'),
 
-        # Фреймворки и библиотеки (backend)
+        # Backend frameworks and libraries
         ('Flask', 'backend'), ('Django', 'backend'), ('FastAPI', 'backend'),
         ('Node.js', 'backend'), ('Express', 'backend'), ('NestJS', 'backend'),
         ('Spring Boot', 'backend'), ('ASP.NET', 'backend'), ('Ruby on Rails', 'backend'),
@@ -2018,7 +2031,7 @@ def seed_default_data():
         ('Echo', 'backend'), ('Tornado', 'backend'), ('Celery', 'backend'),
         ('gRPC', 'backend'),
 
-        # Фреймворки и библиотеки (frontend)
+        # Frontend frameworks and libraries
         ('React', 'frontend'), ('Vue', 'frontend'), ('Angular', 'frontend'),
         ('Svelte', 'frontend'), ('Next.js', 'frontend'), ('Nuxt', 'frontend'),
         ('jQuery', 'frontend'), ('Tailwind CSS', 'frontend'), ('Bootstrap', 'frontend'),
@@ -2026,19 +2039,19 @@ def seed_default_data():
         ('Remix', 'frontend'), ('SolidJS', 'frontend'), ('Alpine.js', 'frontend'),
         ('Three.js', 'frontend'), ('D3.js', 'frontend'), ('Chart.js', 'frontend'),
 
-        # Мобильная разработка
+        # Mobile development
         ('React Native', 'mobile'), ('Flutter', 'mobile'), ('SwiftUI', 'mobile'),
         ('Jetpack Compose', 'mobile'), ('Xamarin', 'mobile'), ('Ionic', 'mobile'),
         ('Unity', 'mobile'), ('Unreal Engine', 'mobile'), ('Godot', 'mobile'),
 
-        # Базы данных
+        # Databases
         ('PostgreSQL', 'database'), ('MySQL', 'database'), ('SQLite', 'database'),
         ('MongoDB', 'database'), ('Redis', 'database'), ('MariaDB', 'database'),
         ('Cassandra', 'database'), ('Elasticsearch', 'database'), ('Neo4j', 'database'),
         ('DynamoDB', 'database'), ('Firebase', 'database'), ('Supabase', 'database'),
         ('ClickHouse', 'database'), ('TimescaleDB', 'database'), ('InfluxDB', 'database'),
 
-        # DevOps и инфраструктура
+        # DevOps and infrastructure
         ('Docker', 'devops'), ('Kubernetes', 'devops'), ('Terraform', 'devops'),
         ('Ansible', 'devops'), ('CI/CD', 'devops'), ('GitHub Actions', 'devops'),
         ('Jenkins', 'devops'), ('Nginx', 'devops'), ('Traefik', 'devops'),
@@ -2053,12 +2066,12 @@ def seed_default_data():
         ('Hugging Face', 'ml'), ('LangChain', 'ml'), ('ONNX', 'ml'),
         ('MLOps', 'ml'), ('LLM', 'ml'), ('RAG', 'ml'),
 
-        # Дизайн
+        # Design
         ('Figma', 'design'), ('UI/UX', 'design'), ('Adobe XD', 'design'),
         ('Sketch', 'design'), ('Photoshop', 'design'), ('Illustrator', 'design'),
         ('Blender', 'design'), ('After Effects', 'design'),
 
-        # Прочие инструменты
+        # Other tools
         ('GraphQL', 'tools'), ('REST API', 'tools'), ('WebSocket', 'tools'),
         ('OAuth', 'tools'), ('JWT', 'tools'), ('WebRTC', 'tools'),
         ('RabbitMQ', 'tools'), ('Kafka', 'tools'), ('Selenium', 'tools'),
@@ -2070,28 +2083,28 @@ def seed_default_data():
         if not Technology.query.filter_by(name=name).first():
             db.session.add(Technology(name=name, category=cat))
     default_roles = [
-        ('backend', 'Backend-разработчик', 'fa-server'),
-        ('frontend', 'Frontend-разработчик', 'fa-code'),
-        ('fullstack', 'Fullstack-разработчик', 'fa-layer-group'),
-        ('ml', 'ML/AI-инженер', 'fa-brain'),
-        ('devops', 'DevOps-инженер', 'fa-cogs'),
-        ('designer', 'UI/UX Дизайнер', 'fa-palette'),
+        ('backend', 'Backend Developer', 'fa-server'),
+        ('frontend', 'Frontend Developer', 'fa-code'),
+        ('fullstack', 'Fullstack Developer', 'fa-layer-group'),
+        ('ml', 'ML/AI Engineer', 'fa-brain'),
+        ('devops', 'DevOps Engineer', 'fa-cogs'),
+        ('designer', 'UI/UX Designer', 'fa-palette'),
         ('pm', 'Project Manager', 'fa-tasks'),
-        ('mobile', 'Мобильный разработчик', 'fa-mobile-alt'),
+        ('mobile', 'Mobile Developer', 'fa-mobile-alt'),
         ('game-dev', 'Game Developer', 'fa-gamepad'),
         ('data-engineer', 'Data Engineer', 'fa-database'),
         ('qa', 'QA Engineer', 'fa-bug'),
         ('security', 'Security Engineer', 'fa-shield-alt'),
         ('architect', 'Software Architect', 'fa-sitemap'),
         ('tech-lead', 'Tech Lead', 'fa-users-cog'),
-        ('sre', 'SRE-инженер', 'fa-heartbeat'),
-        ('sysadmin', 'Системный администратор', 'fa-terminal'),
-        ('embedded', 'Embedded-разработчик', 'fa-microchip'),
-        ('gamedesigner', 'Геймдизайнер', 'fa-dice-d20'),
+        ('sre', 'SRE Engineer', 'fa-heartbeat'),
+        ('sysadmin', 'System Administrator', 'fa-terminal'),
+        ('embedded', 'Embedded Developer', 'fa-microchip'),
+        ('gamedesigner', 'Game Designer', 'fa-dice-d20'),
         ('3d-artist', '3D Artist', 'fa-cube'),
-        ('animator', 'Аниматор', 'fa-film'),
+        ('animator', 'Animator', 'fa-film'),
         ('sound-designer', 'Sound Designer', 'fa-music'),
-        ('narrative-designer', 'Нарративный дизайнер', 'fa-book'),
+        ('narrative-designer', 'Narrative Designer', 'fa-book'),
         ('community-manager', 'Community Manager', 'fa-comments'),
     ]
     for name, label, icon in default_roles:
@@ -2103,14 +2116,14 @@ def seed_default_data():
 # Start
 # ------------------------------
 def init_db():
-    """Инициализация БД с автодобавлением недостающих колонок."""
+    """DB initialization with auto-adding missing columns."""
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
     if not inspector.get_table_names():
         db.create_all()
         logger.info('Database tables created via db.create_all()')
     else:
-        # Проверяем и добавляем недостающие колонки в ideas
+        # Check and add missing columns to ideas
         idea_columns = {col['name'] for col in inspector.get_columns('ideas')}
         with db.engine.connect() as conn:
             if 'github_url' not in idea_columns:
@@ -2129,7 +2142,7 @@ def init_db():
                 conn.execute(text("ALTER TABLE ideas ADD COLUMN solution TEXT"))
                 conn.commit()
                 logger.info('Added solution column to ideas table')
-        # Проверяем users
+        # Check users table
         user_columns = {col['name'] for col in inspector.get_columns('users')}
         with db.engine.connect() as conn:
             if 'github_username' not in user_columns:
@@ -2163,6 +2176,6 @@ if __name__ == '__main__':
             db.session.commit()
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 
-# Автоинициализация для WSGI-серверов (gunicorn и др.)
+# Auto-initialization for WSGI servers (gunicorn etc.)
 with app.app_context():
     init_db()

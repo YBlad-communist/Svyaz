@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Подписка Pro — СвяZь{% endblock %}
+{% block title %}Pro Subscription — DevConnect{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -265,18 +265,18 @@
 <!-- Hero -->
 <div class="sub-hero">
     <div class="sub-hero-badge">
-        <i class="fas fa-star"></i> СвяZь Pro
+        <i class="fas fa-star"></i> DevConnect Pro
     </div>
-    <h1>Раскрой все возможности</h1>
-    <p>Безлимитные посты, уникальные рамки, фон профиля и закреплённые посты</p>
+    <h1>Unlock all features</h1>
+    <p>Unlimited posts, unique frames, profile background and pinned posts</p>
     {% if current_user.is_subscribed() %}
     <div class="sub-active-banner">
         <i class="fas fa-check-circle"></i>
-        Подписка активна до
+        Subscription active until
         {% if current_user.premium_expires_at and current_user.premium_expires_at.year < 9000 %}
             {{ current_user.premium_expires_at.strftime('%d.%m.%Y') }}
         {% else %}
-            навсегда ♾️
+            forever ♾️
         {% endif %}
     </div>
     {% endif %}
@@ -284,49 +284,49 @@
 
 <!-- Features -->
 <div class="features-section">
-    <div class="features-section-title">Что входит в Pro</div>
-    <div class="features-section-sub">Всё что нужно чтобы выделиться</div>
+    <div class="features-section-title">What's included in Pro</div>
+    <div class="features-section-sub">Everything you need to stand out</div>
     <div class="feat-grid">
         <div class="feat-card">
             <div class="feat-icon">♾️</div>
             <div>
-                <div class="feat-title">Безлимитные посты</div>
-                <div class="feat-desc">Без Pro: не более 5 постов в день. С Pro — публикуй сколько угодно</div>
+                <div class="feat-title">Unlimited Posts</div>
+                <div class="feat-desc">Without Pro: up to 5 posts per day. With Pro — publish as many as you want</div>
             </div>
         </div>
         <div class="feat-card">
             <div class="feat-icon">🎭</div>
             <div>
-                <div class="feat-title">Рамки аватара</div>
-                <div class="feat-desc">Базовая золотая рамка сразу + доступ к маркету рамок</div>
+                <div class="feat-title">Avatar Frames</div>
+                <div class="feat-desc">Basic gold frame right away + access to the frame market</div>
             </div>
         </div>
         <div class="feat-card">
             <div class="feat-icon">🖼️</div>
             <div>
-                <div class="feat-title">Фон профиля</div>
-                <div class="feat-desc">Загрузи своё изображение как фон страницы профиля</div>
+                <div class="feat-title">Profile Background</div>
+                <div class="feat-desc">Upload your own image as your profile page background</div>
             </div>
         </div>
         <div class="feat-card">
             <div class="feat-icon">📌</div>
             <div>
-                <div class="feat-title">Закрепить пост</div>
-                <div class="feat-desc">Выбери один пост и закрепи его вверху своего профиля</div>
+                <div class="feat-title">Pin a Post</div>
+                <div class="feat-desc">Pick one post and pin it to the top of your profile</div>
             </div>
         </div>
         <div class="feat-card">
             <div class="feat-icon">😎</div>
             <div>
-                <div class="feat-title">Статус профиля</div>
-                <div class="feat-desc">Установи эмодзи и текст статуса — он виден на профиле</div>
+                <div class="feat-title">Profile Status</div>
+                <div class="feat-desc">Set an emoji and status text — visible on your profile</div>
             </div>
         </div>
         <div class="feat-card">
             <div class="feat-icon">⭐</div>
             <div>
-                <div class="feat-title">Значок Pro</div>
-                <div class="feat-desc">Значок подписчика отображается рядом с именем в постах и профиле</div>
+                <div class="feat-title">Pro Badge</div>
+                <div class="feat-desc">Subscriber badge displayed next to your name in posts and profile</div>
             </div>
         </div>
     </div>
@@ -337,44 +337,44 @@
     <table>
         <thead>
             <tr>
-                <th>Возможность</th>
-                <th>Без подписки</th>
+                <th>Feature</th>
+                <th>Without subscription</th>
                 <th class="pro-col">⭐ Pro</th>
             </tr>
         </thead>
         <tbody>
             <tr>
-                <td>Постов в день</td>
+                <td>Posts per day</td>
                 <td><span class="check-num">5</span></td>
-                <td class="pro-col"><span class="check-yes">♾️ Без лимита</span></td>
+                <td class="pro-col"><span class="check-yes">♾️ No limit</span></td>
             </tr>
             <tr>
-                <td>Рамки аватара</td>
+                <td>Avatar frames</td>
                 <td><span class="check-no">—</span></td>
                 <td class="pro-col"><span class="check-yes">✓</span></td>
             </tr>
             <tr>
-                <td>Маркет рамок</td>
+                <td>Frame market</td>
                 <td><span class="check-no">—</span></td>
                 <td class="pro-col"><span class="check-yes">✓</span></td>
             </tr>
             <tr>
-                <td>Фон профиля</td>
+                <td>Profile background</td>
                 <td><span class="check-no">—</span></td>
                 <td class="pro-col"><span class="check-yes">✓</span></td>
             </tr>
             <tr>
-                <td>Закрепить пост</td>
+                <td>Pin a post</td>
                 <td><span class="check-no">—</span></td>
                 <td class="pro-col"><span class="check-yes">✓</span></td>
             </tr>
             <tr>
-                <td>Статус профиля</td>
+                <td>Profile status</td>
                 <td><span class="check-no">—</span></td>
                 <td class="pro-col"><span class="check-yes">✓</span></td>
             </tr>
             <tr>
-                <td>Значок Pro</td>
+                <td>Pro badge</td>
                 <td><span class="check-no">—</span></td>
                 <td class="pro-col"><span class="check-yes">✓</span></td>
             </tr>
@@ -383,26 +383,26 @@
 </div>
 
 <!-- Plans -->
-<div class="plans-section-title">Выбери тариф</div>
+<div class="plans-section-title">Choose a plan</div>
 <div class="plans-row">
     {% for key, plan in plans.items() %}
     <div class="plan-card-new {% if key == 'month' %}popular-plan selected{% endif %}"
          id="planCard-{{ key }}" onclick="selectPlan('{{ key }}', {{ plan.price }})">
-        {% if key == 'month' %}<div class="plan-popular-label">🔥 Популярный</div>{% endif %}
-        {% if key == 'forever' %}<div class="plan-popular-label" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">♾️ Навсегда</div>{% endif %}
+        {% if key == 'month' %}<div class="plan-popular-label">🔥 Popular</div>{% endif %}
+        {% if key == 'forever' %}<div class="plan-popular-label" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">♾️ Forever</div>{% endif %}
         <div class="plan-period" style="margin-top:{% if key in ['month','forever'] %}1.25rem{% else %}0{% endif %}">{{ plan.name }}</div>
         <div class="plan-price-big">{{ plan.price }}<span> ₽</span></div>
         <div class="plan-per-month">
-            {% if plan.days == 7 %}≈ {{ (plan.price / 7)|round(0,'floor')|int }} ₽/день
-            {% elif plan.days == 30 %}{{ plan.price }} ₽/месяц
-            {% elif plan.days == 365 %}≈ {{ (plan.price / 12)|round(0,'floor')|int }} ₽/месяц
-            {% else %}единоразово
+            {% if plan.days == 7 %}≈ {{ (plan.price / 7)|round(0,'floor')|int }} ₽/day
+            {% elif plan.days == 30 %}{{ plan.price }} ₽/month
+            {% elif plan.days == 365 %}≈ {{ (plan.price / 12)|round(0,'floor')|int }} ₽/month
+            {% else %}one-time
             {% endif %}
         </div>
         {% if key == 'year' %}
-        <div class="plan-economy">Экономия ~60%</div>
+        <div class="plan-economy">Save ~60%</div>
         {% elif key == 'forever' %}
-        <div class="plan-economy">Лучшая цена</div>
+        <div class="plan-economy">Best deal</div>
         {% endif %}
     </div>
     {% endfor %}
@@ -413,32 +413,32 @@
     <input type="hidden" name="plan" id="selectedPlanInput" value="month">
     <div class="sub-buy-wrap">
         <button type="submit" class="sub-buy-btn" id="buyBtn">
-            <i class="fas fa-star"></i> Оформить Pro — 199 ₽
+            <i class="fas fa-star"></i> Get Pro — 199 ₽
         </button>
         <div class="sub-note">
-            Демо-режим: подписка активируется сразу без реальной оплаты
+            Demo mode: subscription activates immediately without real payment
         </div>
     </div>
 </form>
 
 {% if current_user.role == 'admin' %}
 <div class="admin-sub-panel">
-    <div style="font-weight:700;color:#ef4444;margin-bottom:1rem"><i class="fas fa-crown"></i> Управление подписками (Admin)</div>
+    <div style="font-weight:700;color:#ef4444;margin-bottom:1rem"><i class="fas fa-crown"></i> Subscription Management (Admin)</div>
     <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end">
         <div>
-            <label style="font-size:0.78rem;color:var(--text2);display:block;margin-bottom:0.3rem">ID пользователя</label>
+            <label style="font-size:0.78rem;color:var(--text2);display:block;margin-bottom:0.3rem">User ID</label>
             <input type="number" id="adminSubUserId" class="form-control" placeholder="ID" style="width:120px">
         </div>
         <div>
-            <label style="font-size:0.78rem;color:var(--text2);display:block;margin-bottom:0.3rem">Действие</label>
+            <label style="font-size:0.78rem;color:var(--text2);display:block;margin-bottom:0.3rem">Action</label>
             <select id="adminSubAction" class="form-control">
-                <option value="give_forever">Навсегда</option>
-                <option value="give_year">На год</option>
-                <option value="give_month">На месяц</option>
-                <option value="remove">Убрать</option>
+                <option value="give_forever">Forever</option>
+                <option value="give_year">One year</option>
+                <option value="give_month">One month</option>
+                <option value="remove">Remove</option>
             </select>
         </div>
-        <button onclick="adminManageSub()" class="btn btn-primary">Применить</button>
+        <button onclick="adminManageSub()" class="btn btn-primary">Apply</button>
     </div>
 </div>
 {% endif %}
@@ -448,7 +448,7 @@ const planPrices = {
     week: 69, month: 199, year: 999, forever: 2999
 };
 const planNames = {
-    week: 'Неделя', month: 'Месяц', year: 'Год', forever: 'Навсегда'
+    week: 'Week', month: 'Month', year: 'Year', forever: 'Forever'
 };
 let activePlan = 'month';
 
@@ -465,7 +465,7 @@ function selectPlan(key, price) {
 async function adminManageSub() {
     const uid = document.getElementById('adminSubUserId').value;
     const action = document.getElementById('adminSubAction').value;
-    if (!uid) { alert('Введите ID'); return; }
+    if (!uid) { alert('Enter ID'); return; }
     const fd = new FormData();
     fd.append('action', action);
     fd.append('_csrf_token', CSRF);
@@ -473,7 +473,7 @@ async function adminManageSub() {
         method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd
     });
     const data = await res.json();
-    alert(data.success ? '✅ Подписка обновлена!' : '❌ ' + (data.error || 'Ошибка'));
+    alert(data.success ? '✅ Subscription updated!' : '❌ ' + (data.error || 'Error'));
 }
 {% endif %}
 </script>

@@ -24,15 +24,15 @@
                         {% if channel.is_verified %}<i class="fas fa-check-circle" style="color:#60a5fa;font-size:1.1rem"></i>{% endif %}
                         <span style="font-size:0.85rem;color:var(--text3)">/{{ channel.name }}</span>
                         {% if channel.type == 'private' %}
-                        <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(245,158,11,0.1);color:#f59e0b;font-size:0.72rem;font-weight:600"><i class="fas fa-lock" style="font-size:0.6rem"></i> Приватный</span>
+                        <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(245,158,11,0.1);color:#f59e0b;font-size:0.72rem;font-weight:600"><i class="fas fa-lock" style="font-size:0.6rem"></i> Private</span>
                         {% endif %}
                     </div>
                     {% if channel.description %}
                     <p style="color:var(--text2);margin:0.5rem 0 0;line-height:1.5">{{ channel.description }}</p>
                     {% endif %}
                     <div style="display:flex;gap:1rem;margin-top:0.5rem;font-size:0.82rem;color:var(--text3)">
-                        <span><i class="fas fa-users"></i> {{ channel.member_count() }} участников</span>
-                        <span><i class="fas fa-file-alt"></i> {{ channel.posts.count() }} постов</span>
+                        <span><i class="fas fa-users"></i> {{ channel.member_count() }} members</span>
+                        <span><i class="fas fa-file-alt"></i> {{ channel.posts.count() }} posts</span>
                         <span><i class="fas fa-calendar"></i> {{ channel.created_at.strftime('%d.%m.%Y') }}</span>
                     </div>
                 </div>
@@ -40,13 +40,13 @@
                     {% if is_member %}
                     <form method="POST" action="{{ url_for('channel_leave', channel_name=channel.name) }}">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-secondary btn-sm"><i class="fas fa-sign-out-alt"></i> Покинуть</button>
+                        <button type="submit" class="btn btn-secondary btn-sm"><i class="fas fa-sign-out-alt"></i> Leave</button>
                     </form>
                     {% else %}
                     <form method="POST" action="{{ url_for('channel_join', channel_name=channel.name) }}">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-primary btn-sm">
-                            {% if channel.type == 'private' %}<i class="fas fa-user-plus"></i> Подать заявку{% else %}<i class="fas fa-user-plus"></i> Вступить{% endif %}
+                            {% if channel.type == 'private' %}<i class="fas fa-user-plus"></i> Apply{% else %}<i class="fas fa-user-plus"></i> Join{% endif %}
                         </button>
                     </form>
                     {% endif %}
@@ -59,7 +59,7 @@
 
         {% if pending_requests %}
         <div style="border-top:1px solid var(--border);padding:1rem 1.5rem">
-            <div style="font-weight:700;color:var(--text);margin-bottom:0.5rem"><i class="fas fa-clock" style="color:#f59e0b"></i> Заявки на вступление ({{ pending_requests|length }})</div>
+            <div style="font-weight:700;color:var(--text);margin-bottom:0.5rem"><i class="fas fa-clock" style="color:#f59e0b"></i> Join Requests ({{ pending_requests|length }})</div>
             {% for req in pending_requests %}
             {% set req_user = req.user %}
             <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid var(--border)">
@@ -87,13 +87,13 @@
         <div style="padding:1rem">
             <form method="POST" action="{{ url_for('channel_post_create', channel_name=channel.name) }}" enctype="multipart/form-data">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <textarea name="content" class="form-control" rows="2" placeholder="Написать пост в канал..." required></textarea>
+                <textarea name="content" class="form-control" rows="2" placeholder="Write a post to channel..." required></textarea>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem">
                     <label class="btn btn-secondary btn-sm" style="cursor:pointer">
-                        <i class="fas fa-image"></i> Медиа
+                        <i class="fas fa-image"></i> Media
                         <input type="file" name="media" accept="image/*,video/*" style="display:none" onchange="validateFileSize(this)">
                     </label>
-                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-paper-plane"></i> Опубликовать</button>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-paper-plane"></i> Publish</button>
                 </div>
             </form>
         </div>
@@ -116,7 +116,7 @@
                 {% if is_admin or post.author_id == current_user.id %}
                 <form method="POST" action="{{ url_for('channel_post_delete', channel_name=channel.name, post_id=post.id) }}" style="margin-left:auto">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--text3)" onclick="return confirm('Удалить пост?')"><i class="fas fa-trash"></i></button>
+                    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--text3)" onclick="return confirm('Delete this post?')"><i class="fas fa-trash"></i></button>
                 </form>
                 {% endif %}
             </div>
@@ -139,7 +139,7 @@
             <div id="post-comments-{{ post.id }}" style="display:none;margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
                 <div id="comments-list-{{ post.id }}"></div>
                 <form onsubmit="submitChannelComment(event, {{ post.id }})" style="display:flex;gap:0.5rem;margin-top:0.5rem">
-                    <input type="text" class="form-control" placeholder="Написать комментарий..." id="comment-input-{{ post.id }}" style="border-radius:50px">
+                    <input type="text" class="form-control" placeholder="Write a comment..." id="comment-input-{{ post.id }}" style="border-radius:50px">
                     <button type="submit" class="btn btn-primary btn-sm btn-icon"><i class="fas fa-paper-plane"></i></button>
                 </form>
             </div>
@@ -150,17 +150,17 @@
     {% if posts.has_next or posts.has_prev %}
     <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
         {% if posts.has_prev %}
-        <a href="{{ url_for('channel_page', channel_name=channel.name, page=posts.prev_num) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Назад</a>
+        <a href="{{ url_for('channel_page', channel_name=channel.name, page=posts.prev_num) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
         {% endif %}
         {% if posts.has_next %}
-        <a href="{{ url_for('channel_page', channel_name=channel.name, page=posts.next_num) }}" class="btn btn-secondary">Далее <i class="fas fa-arrow-right"></i></a>
+        <a href="{{ url_for('channel_page', channel_name=channel.name, page=posts.next_num) }}" class="btn btn-secondary">Next <i class="fas fa-arrow-right"></i></a>
         {% endif %}
     </div>
     {% endif %}
     {% else %}
     <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:1rem">📝</div>
-        <div style="font-weight:600;color:var(--text)">Постов пока нет</div>
+        <div style="font-weight:600;color:var(--text)">No posts yet</div>
     </div>
     {% endif %}
 </div>

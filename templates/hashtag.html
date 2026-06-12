@@ -8,7 +8,7 @@
     <div class="card" style="margin-bottom:1rem;padding:1.5rem;text-align:center;background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08))">
         <div style="font-size:2.5rem;font-weight:900;color:var(--primary);margin-bottom:0.25rem">#{{ tag.name }}</div>
         <div style="color:var(--text2);font-size:0.9rem">
-            <i class="fas fa-file-alt"></i> {{ tag.posts_count }} {{ 'пост' if tag.posts_count == 1 else ('поста' if 2 <= tag.posts_count <= 4 else 'постов') }}
+            <i class="fas fa-file-alt"></i> {{ tag.posts_count }} {{ 'post' if tag.posts_count == 1 else 'posts' }}
         </div>
     </div>
 
@@ -46,17 +46,17 @@
     {% else %}
     <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:0.75rem">#️⃣</div>
-        <div>Постов с этим хештегом пока нет</div>
+        <div>No posts with this hashtag yet</div>
     </div>
     {% endfor %}
 
     {% if posts.has_next or posts.has_prev %}
     <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
         {% if posts.has_prev %}
-        <a href="{{ url_for('hashtag_feed', tag_name=tag.name, page=posts.prev_num) }}" class="btn btn-secondary">← Назад</a>
+        <a href="{{ url_for('hashtag_feed', tag_name=tag.name, page=posts.prev_num) }}" class="btn btn-secondary">← Back</a>
         {% endif %}
         {% if posts.has_next %}
-        <a href="{{ url_for('hashtag_feed', tag_name=tag.name, page=posts.next_num) }}" class="btn btn-secondary">Далее →</a>
+        <a href="{{ url_for('hashtag_feed', tag_name=tag.name, page=posts.next_num) }}" class="btn btn-secondary">Next →</a>
         {% endif %}
     </div>
     {% endif %}

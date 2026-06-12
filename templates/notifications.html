@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Уведомления — СвяZь{% endblock %}
+{% block title %}Notifications — DevConnect{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -169,26 +169,26 @@
     <div class="notif-header-card">
         <div class="notif-header-title">
             <i class="fas fa-bell" style="color:var(--primary)"></i>
-            Уведомления
+            Notifications
             {% set unread_total = notifications.items | selectattr('read', 'false') | list | length %}
         </div>
         <div style="display:flex;align-items:center;gap:0.75rem">
             {% if notifications.total %}
-            <span style="font-size:0.82rem;color:var(--text3)">{{ notifications.total }} всего</span>
+            <span style="font-size:0.82rem;color:var(--text3)">{{ notifications.total }} total</span>
             {% endif %}
             <button onclick="markAllRead()" class="btn btn-secondary btn-sm" id="markAllBtn">
-                <i class="fas fa-check-double"></i> Прочитать все
+                <i class="fas fa-check-double"></i> Mark all read
             </button>
         </div>
     </div>
 
     <!-- Filters -->
     <div class="notif-filters">
-        <button class="notif-filter-btn active" onclick="filterNotifs('all', this)">Все</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('like', this)"><i class="fas fa-heart"></i> Лайки</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('comment', this)"><i class="fas fa-comment"></i> Комментарии</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('follow', this)"><i class="fas fa-user-plus"></i> Подписки</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('message', this)"><i class="fas fa-envelope"></i> Сообщения</button>
+        <button class="notif-filter-btn active" onclick="filterNotifs('all', this)">All</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('like', this)"><i class="fas fa-heart"></i> Likes</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('comment', this)"><i class="fas fa-comment"></i> Comments</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('follow', this)"><i class="fas fa-user-plus"></i> Follows</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('message', this)"><i class="fas fa-envelope"></i> Messages</button>
     </div>
 
     <!-- List -->
@@ -213,7 +213,7 @@
                         {{ notif.created_at.strftime('%d.%m.%Y в %H:%M') }}
                     </span>
                     {% if not notif.read %}
-                    <span class="notif-badge notif-badge-new">Новое</span>
+                    <span class="notif-badge notif-badge-new">New</span>
                     {% endif %}
                 </div>
             </div>
@@ -225,8 +225,8 @@
         {% else %}
         <div class="notif-empty">
             <span class="notif-empty-icon">🔔</span>
-            <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.4rem">Пока тихо</div>
-            <div style="font-size:0.88rem">Уведомления появятся когда кто-то<br>лайкнет пост или напишет тебе</div>
+            <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.4rem">Quiet for now</div>
+            <div style="font-size:0.88rem">Notifications will appear when someone<br>likes your post or messages you</div>
         </div>
         {% endif %}
     </div>
@@ -234,7 +234,7 @@
     {% if notifications.has_next %}
     <div style="text-align:center;margin-top:1rem">
         <a href="{{ url_for('notifications', page=notifications.next_num) }}" class="btn btn-secondary">
-            Загрузить ещё
+            Load more
         </a>
     </div>
     {% endif %}
@@ -251,7 +251,7 @@ function filterNotifs(type, btn) {
 }
 
 async function markAllRead() {
-    // Помечаем все как прочитанные через перезагрузку страницы (уведомления читаются при открытии)
+    // Mark all as read via page reload (notifications are read on open)
     document.querySelectorAll('.notif-item.unread').forEach(item => {
         item.classList.remove('unread');
         const dot = item.querySelector('.notif-dot');
@@ -259,8 +259,8 @@ async function markAllRead() {
         const badge = item.querySelector('.notif-badge-new');
         if (badge) badge.remove();
     });
-    document.getElementById('markAllBtn').innerHTML = '<i class="fas fa-check"></i> Готово';
-    // Обновить счётчик в навбаре
+    document.getElementById('markAllBtn').innerHTML = '<i class="fas fa-check"></i> Done';
+    // Update counter in navbar
     const badge = document.querySelector('.nav-btn .badge');
     if (badge) badge.remove();
 }

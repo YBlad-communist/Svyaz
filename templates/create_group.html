@@ -1,31 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Создать группу — СвяZь{% endblock %}
+{% block title %}Create Group — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:560px;margin:0 auto">
 <div class="card">
-    <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Создать групповой чат</div>
+    <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Create Group Chat</div>
     <div class="card-body">
         <form method="POST" enctype="multipart/form-data">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label class="form-label">Название группы *</label>
-                <input type="text" name="name" class="form-control" placeholder="Моя группа" required maxlength="100">
+                <label class="form-label">Group Name *</label>
+                <input type="text" name="name" class="form-control" placeholder="My group" required maxlength="100">
             </div>
             <div class="form-group">
-                <label class="form-label">Аватар группы</label>
+                <label class="form-label">Group Avatar</label>
                 <input type="file" name="avatar" class="form-control" accept="image/*" onchange="validateFileSize(this, 5*1024*1024)">
             </div>
             <div class="form-group">
-                <label class="form-label">Добавить участников</label>
-                <input type="text" id="memberSearch" class="form-control" placeholder="Поиск по имени пользователя...">
+                <label class="form-label">Add Members</label>
+                <input type="text" id="memberSearch" class="form-control" placeholder="Search by username...">
                 <div id="memberResults" style="margin-top:0.5rem;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-xs);display:none"></div>
                 <div id="selectedMembers" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem"></div>
             </div>
             <div style="display:flex;gap:0.75rem">
                 <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-plus"></i> Создать группу
+                    <i class="fas fa-plus"></i> Create Group
                 </button>
-                <a href="{{ url_for('chats') }}" class="btn btn-secondary">Отмена</a>
+                <a href="{{ url_for('chats') }}" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
     </div>
@@ -47,7 +47,7 @@ document.getElementById('memberSearch').addEventListener('input', async function
             <img src="${u.avatar}" class="avatar avatar-sm">
             <span style="font-weight:600;font-size:0.9rem">${u.username}</span>
         </div>
-    `).join('') || '<div style="padding:0.75rem;color:var(--text3);font-size:0.88rem;text-align:center">Не найдено</div>';
+    `).join('') || '<div style="padding:0.75rem;color:var(--text3);font-size:0.88rem;text-align:center">Not found</div>';
 });
 
 function addMember(username, avatar) {

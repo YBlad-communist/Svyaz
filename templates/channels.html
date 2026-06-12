@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Каналы — СвяZь{% endblock %}
+{% block title %}Channels — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:900px;margin:0 auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-        <h2 style="font-weight:800;color:var(--text)"><i class="fas fa-users" style="color:var(--primary)"></i> Каналы</h2>
+        <h2 style="font-weight:800;color:var(--text)"><i class="fas fa-users" style="color:var(--primary)"></i> Channels</h2>
         <a href="{{ url_for('channel_create') }}" class="btn btn-primary">
-            <i class="fas fa-plus"></i> Создать канал
+            <i class="fas fa-plus"></i> Create Channel
         </a>
     </div>
 
     {% if my_channels %}
     <div class="card" style="margin-bottom:1rem">
-        <div class="card-header"><i class="fas fa-star" style="color:#f59e0b"></i> Мои каналы</div>
+        <div class="card-header"><i class="fas fa-star" style="color:#f59e0b"></i> My Channels</div>
         {% for ch in my_channels %}
         <a href="{{ url_for('channel_page', channel_name=ch.name) }}" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-bottom:1px solid var(--border);text-decoration:none;transition:background 0.15s"
            onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">
@@ -22,7 +22,7 @@
             {% endif %}
             <div style="flex:1;min-width:0">
                 <div style="font-weight:700;color:var(--text)">{{ ch.title }}</div>
-                <div style="font-size:0.8rem;color:var(--text3)">{{ ch.member_count() }} участников · {{ ch.type == 'public' and 'Публичный' or 'Приватный' }}</div>
+                <div style="font-size:0.8rem;color:var(--text3)">{{ ch.member_count() }} members · {{ ch.type == 'public' and 'Public' or 'Private' }}</div>
             </div>
             {% if ch.is_verified %}<i class="fas fa-check-circle" style="color:#60a5fa"></i>{% endif %}
         </a>
@@ -32,11 +32,11 @@
 
     <form method="GET" action="{{ url_for('channels_list') }}" style="margin-bottom:1rem">
         <div style="display:flex;gap:0.5rem">
-            <input type="text" name="q" class="form-control" value="{{ query }}" placeholder="Поиск каналов..." style="border-radius:50px">
+            <input type="text" name="q" class="form-control" value="{{ query }}" placeholder="Search channels..." style="border-radius:50px">
             <select name="type" class="form-control" style="width:auto;border-radius:50px" onchange="this.form.submit()">
                 <option value="all" {% if type_filter == 'all' %}selected{% endif %}>Все</option>
-                <option value="public" {% if type_filter == 'public' %}selected{% endif %}>Публичные</option>
-                <option value="private" {% if type_filter == 'private' %}selected{% endif %}>Приватные</option>
+                <option value="public" {% if type_filter == 'public' %}selected{% endif %}>Public</option>
+                <option value="private" {% if type_filter == 'private' %}selected{% endif %}>Private</option>
             </select>
             <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
         </div>
@@ -61,7 +61,7 @@
                 <div style="font-size:0.85rem;color:var(--text3);margin-top:0.25rem">{{ ch.description[:120] }}{% if ch.description|length > 120 %}...{% endif %}</div>
                 {% endif %}
                 <div style="font-size:0.78rem;color:var(--text3);margin-top:0.3rem">
-                    {{ ch.member_count() }} участников · {{ ch.posts.count() }} постов · {{ ch.type == 'public' and 'Публичный' or 'Приватный' }}
+                    {{ ch.member_count() }} members · {{ ch.posts.count() }} posts · {{ ch.type == 'public' and 'Public' or 'Private' }}
                 </div>
             </div>
         </a>
@@ -71,18 +71,18 @@
     {% if channels.has_next or channels.has_prev %}
     <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1rem">
         {% if channels.has_prev %}
-        <a href="{{ url_for('channels_list', page=channels.prev_num, q=query, type=type_filter) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Назад</a>
+        <a href="{{ url_for('channels_list', page=channels.prev_num, q=query, type=type_filter) }}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Back</a>
         {% endif %}
         {% if channels.has_next %}
-        <a href="{{ url_for('channels_list', page=channels.next_num, q=query, type=type_filter) }}" class="btn btn-secondary">Далее <i class="fas fa-arrow-right"></i></a>
+        <a href="{{ url_for('channels_list', page=channels.next_num, q=query, type=type_filter) }}" class="btn btn-secondary">Next <i class="fas fa-arrow-right"></i></a>
         {% endif %}
     </div>
     {% endif %}
     {% else %}
     <div class="card" style="text-align:center;padding:3rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:1rem">📢</div>
-        <div style="font-weight:600;color:var(--text);margin-bottom:0.5rem">Каналов пока нет</div>
-        <div>Создайте первый канал!</div>
+        <div style="font-weight:600;color:var(--text);margin-bottom:0.5rem">No channels yet</div>
+        <div>Create the first channel!</div>
     </div>
     {% endif %}
 </div>

@@ -1,45 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Создать канал — СвяZь{% endblock %}
+{% block title %}Create Channel — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:600px;margin:0 auto">
     <div class="card">
-        <div class="card-header"><i class="fas fa-plus-circle" style="color:var(--primary)"></i> Создать канал</div>
+        <div class="card-header"><i class="fas fa-plus-circle" style="color:var(--primary)"></i> Create Channel</div>
         <div style="padding:1.5rem">
             <form method="POST" action="{{ url_for('channel_create') }}" enctype="multipart/form-data">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label class="form-label">Адрес канала *</label>
+                    <label class="form-label">Channel Address *</label>
                     <input type="text" name="name" class="form-control" placeholder="python_news" required pattern="[a-zA-Z0-9_-]+" maxlength="50">
-                    <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">Только латиница, цифры, _ и -</div>
+                    <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">Letters, numbers, _ and - only</div>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Название *</label>
-                    <input type="text" name="title" class="form-control" placeholder="Python Новости" required maxlength="100">
+                    <label class="form-label">Title *</label>
+                    <input type="text" name="title" class="form-control" placeholder="Python News" required maxlength="100">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Описание</label>
-                    <textarea name="description" class="form-control" rows="3" placeholder="О чём этот канал..."></textarea>
+                    <label class="form-label">Description</label>
+                    <textarea name="description" class="form-control" rows="3" placeholder="What is this channel about..."></textarea>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Тип канала</label>
+                    <label class="form-label">Channel Type</label>
                     <select name="type" class="form-control">
-                        <option value="public">Публичный — виден всем, вступление сразу</option>
-                        <option value="private">Приватный — вступление по заявке или приглашению</option>
+                        <option value="public">Public — visible to everyone, instant join</option>
+                        <option value="private">Private — join by request or invitation</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Аватар</label>
+                    <label class="form-label">Avatar</label>
                     <input type="file" name="avatar" class="form-control" accept="image/*" onchange="validateFileSize(this, 5*1024*1024)">
                 </div>
 
                 <div style="display:flex;gap:0.75rem;margin-top:1.5rem">
-                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-rocket"></i> Создать</button>
-                    <a href="{{ url_for('channels_list') }}" class="btn btn-secondary">Отмена</a>
+                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-rocket"></i> Create</button>
+                    <a href="{{ url_for('channels_list') }}" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>

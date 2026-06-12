@@ -215,7 +215,7 @@ class TestRegister:
         setup_csrf(client)
         rv = client.post('/register', data={
             'username': 'newuser', 'email': 'new@test.com',
-            'password': 'securepass123', '_csrf_token': CSRF_TOKEN,
+            'password': 'Securepass123!', '_csrf_token': CSRF_TOKEN,
         }, follow_redirects=True)
         assert rv.status_code == 200
         assert User.query.filter_by(username='newuser').first() is not None
@@ -224,7 +224,7 @@ class TestRegister:
         setup_csrf(client)
         rv = client.post('/register', data={
             'username': 'alice', 'email': 'other@test.com',
-            'password': 'securepass123', '_csrf_token': CSRF_TOKEN,
+            'password': 'Securepass123!', '_csrf_token': CSRF_TOKEN,
         }, follow_redirects=True)
         assert rv.status_code == 200
 
@@ -240,7 +240,7 @@ class TestRegister:
         setup_csrf(client)
         rv = client.post('/register', data={
             'username': 'bad', 'email': 'not-email',
-            'password': 'securepass123', '_csrf_token': CSRF_TOKEN,
+            'password': 'Securepass123!', '_csrf_token': CSRF_TOKEN,
         }, follow_redirects=True)
         assert rv.status_code == 200
 

@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Создать идею — СвяZь{% endblock %}
+{% block title %}Create Idea — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:720px;margin:0 auto">
     <div class="card">
         <div class="card-header">
-            <i class="fas fa-lightbulb" style="color:#f59e0b"></i> Новая идея проекта
+            <i class="fas fa-lightbulb" style="color:#f59e0b"></i> New Project Idea
         </div>
         <div style="padding:1.5rem">
             <form method="POST" action="{{ url_for('idea_create') }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label class="form-label">Название идеи *</label>
-                    <input type="text" name="title" class="form-control" placeholder="Краткое и ёмкое название" maxlength="200" required>
+                    <label class="form-label">Idea Title *</label>
+                    <input type="text" name="title" class="form-control" placeholder="Short and catchy title" maxlength="200" required>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Тип проекта *</label>
+                    <label class="form-label">Project Type *</label>
                     <select name="project_type" class="form-control" required>
                         {% for key, label in project_types.items() %}
                         <option value="{{ key }}">{{ label }}</option>
@@ -25,19 +25,19 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Описание *</label>
-                    <textarea name="description" class="form-control" rows="5" placeholder="Опишите вашу идею: что это, зачем, для кого..." required></textarea>
+                    <label class="form-label">Description *</label>
+                    <textarea name="description" class="form-control" rows="5" placeholder="Describe your idea: what it is, why, for whom..." required></textarea>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label"><i class="fab fa-github" style="color:#6e5494"></i> GitHub репозиторий или профиль</label>
                     <input type="url" name="github_url" class="form-control" placeholder="https://github.com/username/repo или https://github.com/username">
-                    <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">Необязательно. Ссылка на репозиторий или ваш GitHub профиль.</div>
+                    <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">Optional. Link to repository or your GitHub profile.</div>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Технологии</label>
-                    <input type="text" id="techSearch" class="form-control" placeholder="Поиск технологий..." style="margin-bottom:0.5rem;font-size:0.85rem" oninput="filterTechs(this.value)">
+                    <label class="form-label">Technologies</label>
+                    <input type="text" id="techSearch" class="form-control" placeholder="Search technologies..." style="margin-bottom:0.5rem;font-size:0.85rem" oninput="filterTechs(this.value)">
                     <div id="techList" style="display:flex;flex-wrap:wrap;gap:0.5rem;max-height:300px;overflow-y:auto;padding:0.75rem;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border)">
                         {% for cat_name, cat_techs in tech_by_category.items() %}
                         <div style="width:100%;margin:0.5rem 0 0.25rem;font-weight:600;color:var(--text2);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.05em" class="tech-category">
@@ -56,7 +56,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Какие роли нужны в команде?</label>
+                    <label class="form-label">What roles are needed in the team?</label>
                     <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
                         {% for role in roles %}
                         <label style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.3rem 0.65rem;border-radius:50px;background:rgba(16,185,129,0.08);border:1px solid var(--border);cursor:pointer;font-size:0.85rem;transition:all 0.15s"
@@ -70,9 +70,9 @@
 
                 <div style="display:flex;gap:0.75rem;margin-top:1.5rem">
                     <button type="submit" class="btn btn-primary" style="flex:1">
-                        <i class="fas fa-rocket"></i> Опубликовать идею
+                        <i class="fas fa-rocket"></i> Publish Idea
                     </button>
-                    <a href="{{ url_for('ideas_feed') }}" class="btn btn-secondary">Отмена</a>
+                    <a href="{{ url_for('ideas_feed') }}" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>

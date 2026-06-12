@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Чаты — СвяZь{% endblock %}
+{% block title %}Chats — DevConnect{% endblock %}
 {% block extra_css %}
 <style>
 /* Дополнительные стили для страницы чатов */
@@ -214,24 +214,24 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
     <!-- Sidebar -->
     <div class="chat-sidebar" id="chatSidebar">
         <div class="chat-sidebar-header">
-            <span class="chat-sidebar-title">Сообщения</span>
-            <button class="btn btn-primary btn-icon btn-sm" onclick="showNewChatModal()" title="Новый чат">
+            <span class="chat-sidebar-title">Messages</span>
+            <button class="btn btn-primary btn-icon btn-sm" onclick="showNewChatModal()" title="New chat">
                 <i class="fas fa-edit"></i>
             </button>
-            <a href="{{ url_for('create_group') }}" class="btn btn-secondary btn-icon btn-sm" title="Создать группу">
+            <a href="{{ url_for('create_group') }}" class="btn btn-secondary btn-icon btn-sm" title="Create group">
                 <i class="fas fa-users"></i>
             </a>
         </div>
         <div class="chat-search">
             <div style="position:relative">
                 <i class="fas fa-search" style="position:absolute;left:0.75rem;top:50%;transform:translateY(-50%);color:var(--text3);font-size:0.82rem"></i>
-                <input type="text" id="chatSearchInput" class="form-control" placeholder="Поиск чатов..." style="padding-left:2.2rem;border-radius:50px">
+                <input type="text" id="chatSearchInput" class="form-control" placeholder="Search chats..." style="padding-left:2.2rem;border-radius:50px">
             </div>
         </div>
         <div class="chat-list" id="chatList">
             <div style="text-align:center;padding:2rem;color:var(--text3)">
                 <div class="spinner" style="margin:0 auto 0.75rem"></div>
-                Загрузка...
+                Loading...
             </div>
         </div>
     </div>
@@ -241,10 +241,10 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         <!-- Empty state -->
         <div id="emptyChatState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text3);text-align:center;padding:2rem">
             <div style="font-size:4rem;margin-bottom:1rem">💬</div>
-            <div style="font-size:1.2rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">Выбери чат</div>
-            <div style="font-size:0.9rem;margin-bottom:1.5rem">или начни новый разговор</div>
+            <div style="font-size:1.2rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">Select a chat</div>
+            <div style="font-size:0.9rem;margin-bottom:1.5rem">or start a new conversation</div>
             <button onclick="showNewChatModal()" class="btn btn-primary">
-                <i class="fas fa-edit"></i> Новое сообщение
+                <i class="fas fa-edit"></i> New Message
             </button>
         </div>
 
@@ -259,10 +259,10 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
                 <div class="chat-header-status" id="chatStatus">...</div>
             </div>
             <div style="display:flex;gap:0.25rem">
-                <button class="btn btn-ghost btn-icon" id="chatInfoBtn" onclick="toggleChatInfo()" title="Информация">
+                <button class="btn btn-ghost btn-icon" id="chatInfoBtn" onclick="toggleChatInfo()" title="Info">
                     <i class="fas fa-info-circle"></i>
                 </button>
-                <button class="btn btn-ghost btn-icon" onclick="deleteCurrentChat()" title="Удалить чат">
+                <button class="btn btn-ghost btn-icon" onclick="deleteCurrentChat()" title="Delete chat">
                     <i class="fas fa-trash" style="color:var(--text3)"></i>
                 </button>
             </div>
@@ -288,12 +288,12 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         <!-- Input area (fixed) -->
         <div class="chat-input-area" id="chatInputArea" style="display:none">
             <div class="chat-input-row">
-                <label class="btn btn-ghost btn-icon" for="mediaUpload" title="Прикрепить файл" style="flex-shrink:0">
+                <label class="btn btn-ghost btn-icon" for="mediaUpload" title="Attach file" style="flex-shrink:0">
                     <i class="fas fa-paperclip"></i>
                     <input type="file" id="mediaUpload" style="display:none" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" onchange="if(!validateFileSize(this))return;attachFile(this.files[0])">
                 </label>
-                <textarea class="chat-input-box" id="msgInput" placeholder="Сообщение..." rows="1"></textarea>
-                <button class="btn btn-ghost btn-icon" id="emojiToggle" title="Реакции">
+                <textarea class="chat-input-box" id="msgInput" placeholder="Message..." rows="1"></textarea>
+                <button class="btn btn-ghost btn-icon" id="emojiToggle" title="Reactions">
                     <i class="fas fa-smile"></i>
                 </button>
                 <button class="chat-send-btn" id="sendBtn">
@@ -313,12 +313,12 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
 <div id="newChatModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
     <div style="background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:1.75rem;width:90%;max-width:400px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
-            <h3 style="font-weight:700;color:var(--text)">Новый чат</h3>
+            <h3 style="font-weight:700;color:var(--text)">New Chat</h3>
             <button onclick="closeNewChatModal()" class="btn btn-ghost btn-icon"><i class="fas fa-times"></i></button>
         </div>
         <div style="position:relative;margin-bottom:0.75rem">
             <i class="fas fa-search" style="position:absolute;left:0.75rem;top:50%;transform:translateY(-50%);color:var(--text3);font-size:0.85rem"></i>
-            <input type="text" id="newChatSearch" class="form-control" placeholder="Найти пользователя..." style="padding-left:2.3rem">
+            <input type="text" id="newChatSearch" class="form-control" placeholder="Find a user..." style="padding-left:2.3rem">
         </div>
         <div id="newChatResults" style="max-height:300px;overflow-y:auto"></div>
     </div>
@@ -335,14 +335,14 @@ let replyToId = null;
 let chatIsGroup = false;
 let chatIsAdmin = false;
 let selectedFile = null;
-let isUserScrolledUp = false;      // Флаг для автоматической прокрутки
+let isUserScrolledUp = false;      // Auto-scroll flag
 let lastScrollTop = 0;
 const ME = {{ current_user.id }};
-let lastNotifMsgId = null;          // Для уведомлений о новых сообщениях
-let isSendingMessage = false;       // Защита от двойной отправки
-let onlineStatusInterval = null;    // Интервал обновления статуса собеседника
+let lastNotifMsgId = null;          // For new message notifications
+let isSendingMessage = false;       // Double-send protection
+let onlineStatusInterval = null;    // Contact status update interval
 
-// Функция для отображения уведомления (toast)
+// Display toast notification function
 function showToastMessage(msg, type = 'info') {
     // Если общий toast доступен (в base.html) — используем его
     if (typeof window.showToast === 'function') {
@@ -359,14 +359,14 @@ function showToastMessage(msg, type = 'info') {
     setTimeout(() => toast.remove(), 3900);
 }
 
-// Рендер аватара
+// Render avatar
 function renderAvatar(src, size) {
     const sizeMap = { xs: 28, sm: 36, md: 48, lg: 80 };
     const px = sizeMap[size] || 48;
     return `<img src="${src}" class="avatar avatar-${size}" style="width:${px}px;height:${px}px">`;
 }
 
-// Загрузка списка чатов
+// Load chat list
 async function loadChats(filter = '') {
     const res = await fetch('/api/chats');
     const chats = await res.json();
@@ -374,7 +374,7 @@ async function loadChats(filter = '') {
     const filtered = filter ? chats.filter(c => c.username.toLowerCase().includes(filter.toLowerCase())) : chats;
 
     if (!filtered.length) {
-        list.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text3);font-size:0.88rem">Нет чатов.<br>Начни разговор!</div>';
+        list.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text3);font-size:0.88rem">No chats.<br>Start a conversation!</div>';
         return;
     }
     list.innerHTML = filtered.map(c => `
@@ -385,7 +385,7 @@ async function loadChats(filter = '') {
             </div>
             <div class="chat-item-info">
                 <div class="chat-item-name">${c.username}</div>
-                <div class="chat-item-preview">${c.last_message || 'Нет сообщений'}</div>
+                <div class="chat-item-preview">${c.last_message || 'No messages'}</div>
             </div>
             <div class="chat-item-meta">
                 <div class="chat-item-time">${c.last_time}</div>
@@ -395,12 +395,12 @@ async function loadChats(filter = '') {
     `).join('');
 }
 
-// Поиск чатов
+// Search chats
 document.getElementById('chatSearchInput').addEventListener('input', (e) => {
     loadChats(e.target.value);
 });
 
-// Отслеживание прокрутки для умного автоскролла
+// Track scroll for smart auto-scroll
 function initScrollWatcher() {
     const container = document.getElementById('chatMessages');
     if (!container) return;
@@ -415,7 +415,7 @@ function initScrollWatcher() {
     });
 }
 
-// Прокрутка вниз, если пользователь не ушёл вверх
+// Scroll down if user hasn't scrolled up
 function scrollToBottomIfNeeded() {
     if (isUserScrolledUp) return;
     const container = document.getElementById('chatMessages');
@@ -441,7 +441,7 @@ function setMobileScreen(mode) {
     layout.classList.add(mode === 'chat' ? 'mobile-show-chat' : 'mobile-show-list');
 }
 
-// Открыть чат
+// Open chat
 async function openChat(chatId) {
     if (onlineStatusInterval) {
         clearInterval(onlineStatusInterval);
@@ -452,16 +452,16 @@ async function openChat(chatId) {
     lastMsgTimestamp = 0;
     isUserScrolledUp = false;
 
-    // Обновить активный пункт в сайдбаре
+    // Update active item in sidebar
     document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
     document.getElementById(`chatItem-${chatId}`)?.classList.add('active');
 
-    // Получить информацию о чате
+    // Get chat info
     const info = await fetch(`/api/chat/${chatId}/info`).then(r => r.json());
     chatIsGroup = info.is_group;
     chatIsAdmin = info.is_admin;
 
-    // Обновить заголовок
+    // Update header
     document.getElementById('emptyChatState').style.display = 'none';
     document.getElementById('chatHeader').style.display = 'flex';
     document.getElementById('chatMessages').style.display = 'flex';
@@ -471,22 +471,22 @@ async function openChat(chatId) {
     const avatarImg = chatItem?.querySelector('.avatar')?.src || '';
     document.getElementById('chatAvatar').src = avatarImg;
     document.getElementById('chatName').textContent = info.name || chatItem?.querySelector('.chat-item-name')?.textContent || '';
-    document.getElementById('chatStatus').textContent = info.is_group ? 'Группа' : 'Не в сети';
+    document.getElementById('chatStatus').textContent = info.is_group ? 'Group' : 'Offline';
 
-    // Для мобильных: скрыть сайдбар
+    // For mobile: hide sidebar
     if (window.innerWidth <= 768) {
         setMobileScreen('chat');
         // backBtn показывается через CSS класса mobile-show-chat
     }
 
-    // Загрузить сообщения
+    // Load messages
     await loadMessages();
 
-    // Запустить опрос
+    // Start polling
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(pollMessages, 2000);
 
-    // Онлайн-статус (для личных чатов)
+    // Online status (for private chats)
     if (!chatIsGroup) {
         const userId = parseInt(chatItem?.dataset?.userId || '0', 10);
         if (userId) {
@@ -505,7 +505,7 @@ async function loadMessages() {
         lastMsgTimestamp = msgs[msgs.length - 1].created_at_full;
         renderMessages(msgs, container);
     } else {
-        container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:2rem;font-size:0.9rem">Нет сообщений. Напиши первым!</div>';
+        container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:2rem;font-size:0.9rem">No messages. Be the first to write!</div>';
     }
     scrollToBottom();
     initScrollWatcher();
@@ -529,7 +529,7 @@ async function pollMessages() {
                 lastNotifMsgId = lastMsg.id;
             }
         }
-        // Обновить список чатов (для счётчика непрочитанных)
+        // Update chat list (for unread counter)
         loadChats(document.getElementById('chatSearchInput').value);
     }
 }
@@ -589,7 +589,7 @@ function createMsgElement(msg, showName = true) {
         } else if (msg.media_type === 'video') {
             html += `<video controls style="max-width:100%;max-height:200px;border-radius:12px;display:block;margin-bottom:0.3rem"><source src="${msg.media_url}"></video>`;
         } else {
-            html += `<a href="${msg.media_url}" style="display:block;padding:0.4rem;background:rgba(0,0,0,0.1);border-radius:8px;color:inherit;text-decoration:none;font-size:0.85rem;margin-bottom:0.3rem"><i class="fas fa-file"></i> Файл</a>`;
+            html += `<a href="${msg.media_url}" style="display:block;padding:0.4rem;background:rgba(0,0,0,0.1);border-radius:8px;color:inherit;text-decoration:none;font-size:0.85rem;margin-bottom:0.3rem"><i class="fas fa-file"></i> File</a>`;
         }
     }
 
@@ -618,7 +618,7 @@ function escHtml(s) {
     return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Отправка сообщения
+// Send message
 async function sendMessage() {
     if (isSendingMessage) return;
 
@@ -670,7 +670,7 @@ document.getElementById('msgInput').addEventListener('input', function() {
     this.style.height = Math.min(this.scrollHeight, 150) + 'px';
 });
 
-// Файлы
+// Files
 document.getElementById('mediaUpload').addEventListener('change', function() {
     const file = this.files[0];
     if (!file) return;
@@ -692,7 +692,7 @@ function clearChatMedia() {
     document.getElementById('mediaUpload').value = '';
 }
 
-// Ответ на сообщение
+// Reply to message
 function setReply(msgId, username, text) {
     replyToId = msgId;
     document.getElementById('replyPreview').style.display = 'block';
@@ -706,7 +706,7 @@ function cancelReply() {
     document.getElementById('replyPreview').style.display = 'none';
 }
 
-// Контекстное меню
+// Context menu
 const REACTIONS = ['👍','❤️','😂','😮','😢','😡'];
 
 function showMsgMenu(e, msgId, isMine) {
@@ -717,9 +717,9 @@ function showMsgMenu(e, msgId, isMine) {
             ${REACTIONS.map(r => `<button class="emoji-btn" onclick="addReaction(${msgId},'${r}');closeMsgMenu()">${r}</button>`).join('')}
         </div>
         <div style="border-top:1px solid var(--border);margin:0.25rem 0"></div>
-        <button class="context-item" onclick="replyToMsg(${msgId});closeMsgMenu()"><i class="fas fa-reply"></i> Ответить</button>
-        <button class="context-item" onclick="copyMsg(${msgId});closeMsgMenu()"><i class="fas fa-copy"></i> Копировать</button>
-        ${isMine ? `<button class="context-item danger" onclick="deleteMsgAction(${msgId});closeMsgMenu()"><i class="fas fa-trash"></i> Удалить</button>` : ''}
+        <button class="context-item" onclick="replyToMsg(${msgId});closeMsgMenu()"><i class="fas fa-reply"></i> Reply</button>
+        <button class="context-item" onclick="copyMsg(${msgId});closeMsgMenu()"><i class="fas fa-copy"></i> Copy</button>
+        ${isMine ? `<button class="context-item danger" onclick="deleteMsgAction(${msgId});closeMsgMenu()"><i class="fas fa-trash"></i> Delete</button>` : ''}
     `;
     menu.style.display = 'block';
     const x = Math.min(e.clientX, window.innerWidth - 220);
@@ -745,7 +745,7 @@ function copyMsg(msgId) {
 }
 
 async function deleteMsgAction(msgId) {
-    if (!confirm('Удалить сообщение?')) return;
+    if (!confirm('Delete message?')) return;
     const res = await api(`/api/chat/${currentChatId}/delete_message/${msgId}`, 'DELETE');
     if (res?.success) {
         const el = document.getElementById(`msg-${msgId}`);
@@ -759,25 +759,25 @@ async function addReaction(msgId, reaction) {
     await loadMessages();
 }
 
-// Онлайн-статус
+// Online status
 async function checkOnline(userId) {
     if (!userId) return;
     const res = await fetch(`/api/user/${userId}/online`);
     const data = await res.json();
     const statusEl = document.getElementById('chatStatus');
-    if (statusEl) statusEl.innerHTML = data.online ? '<span class="chat-header-online"><i class="fas fa-circle" style="font-size:0.6rem"></i> В сети</span>' : 'Не в сети';
+    if (statusEl) statusEl.innerHTML = data.online ? '<span class="chat-header-online"><i class="fas fa-circle" style="font-size:0.6rem"></i> Online</span>' : 'Offline';
 }
 
-// Информация о группе
+// Group info
 async function toggleChatInfo() {
     if (!chatIsGroup) return;
     const res = await fetch(`/api/group/${currentChatId}/members`);
     const data = await res.json();
-    alert(`Участники группы:\n${data.members.map(m => `${m.username}${m.is_admin?' (Админ)':''}`).join('\n')}`);
+    alert(`Group members:\n${data.members.map(m => `${m.username}${m.is_admin?' (Admin)':''}`).join('\n')}`);
 }
 
 async function deleteCurrentChat() {
-    if (!confirm('Удалить чат?')) return;
+    if (!confirm('Delete chat?')) return;
     const res = await api(`/api/chat/${currentChatId}/delete`);
     if (res?.success) {
         currentChatId = null;
@@ -794,7 +794,7 @@ async function deleteCurrentChat() {
     }
 }
 
-// Модалка нового чата
+// New chat modal
 function showNewChatModal() { document.getElementById('newChatModal').style.display = 'flex'; document.getElementById('newChatSearch').focus(); }
 function closeNewChatModal() { document.getElementById('newChatModal').style.display = 'none'; }
 
@@ -808,7 +808,7 @@ document.getElementById('newChatSearch').addEventListener('input', async functio
             <img src="${u.avatar}" class="avatar avatar-md">
             <div><div style="font-weight:600">${u.username}</div></div>
         </div>
-    `).join('') : '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.88rem">Не найдено</div>';
+    `).join('') : '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.88rem">Not found</div>';
 });
 
 async function startNewChat(username) {
@@ -818,7 +818,7 @@ async function startNewChat(username) {
     if (data.chat_id) { await loadChats(); await openChat(data.chat_id); }
 }
 
-// Мобильные: закрыть чат, показать сайдбар
+// Mobile: close chat, show sidebar
 function closeMobileChat() {
     setMobileScreen('list');
     // backBtn скрывается через CSS класса mobile-show-list
@@ -846,11 +846,11 @@ function applyMobileChatViewState() {
     }
 }
 
-// Обработка параметра ?chat= из URL
+// Handle ?chat= parameter from URL
 const urlParams = new URLSearchParams(window.location.search);
 const chatIdFromUrl = urlParams.get('chat');
 
-// Инициализация
+// Initialization
 loadChats().then(() => {
     if (chatIdFromUrl) {
         openChat(parseInt(chatIdFromUrl));
@@ -860,15 +860,15 @@ loadChats().then(() => {
 });
 window.addEventListener('resize', applyMobileChatViewState);
 
-// Автообновление списка чатов, даже если чат не открыт
+// Auto-refresh chat list, even when no chat is open
 setInterval(() => {
     loadChats(document.getElementById('chatSearchInput')?.value || '');
 }, 2500);
 
-// Следить за видимостью вкладки для уведомлений
+// Watch tab visibility for notifications
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentChatId) {
-        loadMessages(); // при возвращении обновить
+        loadMessages(); // refresh on return
     }
 });
 </script>

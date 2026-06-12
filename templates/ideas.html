@@ -1,35 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Идеи — СвяZь{% endblock %}
+{% block title %}Ideas — DevConnect{% endblock %}
 {% block content %}
 <div class="layout-grid">
 <div class="sticky-col">
     <div class="sidebar-card">
-        <div class="sidebar-card-header"><i class="fas fa-lightbulb"></i> Фильтры</div>
+        <div class="sidebar-card-header"><i class="fas fa-lightbulb"></i> Filters</div>
         <div style="padding:0.75rem">
             <form method="GET" action="{{ url_for('ideas_feed') }}">
                 <input type="hidden" name="sort" value="{{ sort }}">
                 <div class="form-group">
-                    <label class="form-label" style="font-size:0.82rem">Тип проекта</label>
+                    <label class="form-label" style="font-size:0.82rem">Project type</label>
                     <select name="type" class="form-control form-control-sm" onchange="this.form.submit()">
-                        <option value="">Все</option>
+                        <option value="">All</option>
                         {% for key, label in project_types.items() %}
                         <option value="{{ key }}" {% if type_filter == key %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" style="font-size:0.82rem">Технология</label>
+                    <label class="form-label" style="font-size:0.82rem">Technology</label>
                     <select name="tech" class="form-control form-control-sm" onchange="this.form.submit()">
-                        <option value="">Все</option>
+                        <option value="">All</option>
                         {% for t in technologies %}
                         <option value="{{ t.name }}" {% if tech_filter == t.name %}selected{% endif %}>{{ t.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" style="font-size:0.82rem">Роль</label>
+                    <label class="form-label" style="font-size:0.82rem">Role</label>
                     <select name="role" class="form-control form-control-sm" onchange="this.form.submit()">
-                        <option value="">Все</option>
+                        <option value="">All</option>
                         {% for r in roles %}
                         <option value="{{ r.name }}" {% if role_filter == r.name %}selected{% endif %}>{{ r.label }}</option>
                         {% endfor %}
@@ -42,20 +42,20 @@
 
 <div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-        <h2 style="font-weight:800;color:var(--text)"><i class="fas fa-lightbulb" style="color:#f59e0b"></i> Идеи проектов</h2>
+        <h2 style="font-weight:800;color:var(--text)"><i class="fas fa-lightbulb" style="color:#f59e0b"></i> Project Ideas</h2>
         <a href="{{ url_for('idea_create') }}" class="btn btn-primary">
-            <i class="fas fa-plus"></i> Создать идею
+            <i class="fas fa-plus"></i> Create idea
         </a>
     </div>
 
     <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
         <a href="{{ url_for('ideas_feed', sort='hot', tech=tech_filter, role=role_filter) }}"
            class="btn btn-sm {% if sort == 'hot' %}btn-primary{% else %}btn-secondary{% endif %}">
-            <i class="fas fa-fire"></i> Популярные
+            <i class="fas fa-fire"></i> Popular
         </a>
         <a href="{{ url_for('ideas_feed', sort='new', tech=tech_filter, role=role_filter) }}"
            class="btn btn-sm {% if sort == 'new' %}btn-primary{% else %}btn-secondary{% endif %}">
-            <i class="fas fa-clock"></i> Новые
+            <i class="fas fa-clock"></i> New
         </a>
     </div>
 
@@ -92,7 +92,7 @@
                     </div>
                     {% if idea.roles_needed|length > 0 %}
                     <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem">
-                        <span style="font-size:0.75rem;color:var(--text3);font-weight:600">Ищут:</span>
+                        <span style="font-size:0.75rem;color:var(--text3);font-weight:600">Looking for:</span>
                         {% for role in idea.roles_needed[:5] %}
                         <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(16,185,129,0.1);color:#10b981;font-size:0.72rem;font-weight:600">
                             <i class="fas {{ role.icon or 'fa-user' }}" style="font-size:0.65rem"></i> {{ role.label }}
@@ -113,14 +113,14 @@
                         </span>
                         {% endif %}
                         <span><i class="fas fa-clock"></i> {{ idea.created_at.strftime('%d.%m.%Y') }}</span>
-                        <span><i class="fas fa-heart"></i> {{ idea.likes_count }} поддержали</span>
+                        <span><i class="fas fa-heart"></i> {{ idea.likes_count }} supporters</span>
                         {% if idea.author_id != current_user.id and idea.author.is_viewable %}
                         <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="color:var(--primary);text-decoration:none;font-weight:600">
-                            <i class="fas fa-user-plus"></i> Вступить
+                            <i class="fas fa-user-plus"></i> Join
                         </a>
                         {% elif idea.author_id == current_user.id %}
                         <a href="{{ url_for('idea_edit', idea_id=idea.id) }}" style="color:var(--text2);text-decoration:none;font-weight:600">
-                            <i class="fas fa-edit"></i> Редактировать
+                            <i class="fas fa-edit"></i> Edit
                         </a>
                         {% endif %}
                     </div>
@@ -134,12 +134,12 @@
     <div style="display:flex;justify-content:center;gap:0.75rem;margin-top:1.5rem">
         {% if ideas.has_prev %}
         <a href="{{ url_for('ideas_feed', page=ideas.prev_num, sort=sort, tech=tech_filter, role=role_filter) }}" class="btn btn-secondary">
-            <i class="fas fa-arrow-left"></i> Назад
+            <i class="fas fa-arrow-left"></i> Back
         </a>
         {% endif %}
         {% if ideas.has_next %}
         <a href="{{ url_for('ideas_feed', page=ideas.next_num, sort=sort, tech=tech_filter, role=role_filter) }}" class="btn btn-secondary">
-            Далее <i class="fas fa-arrow-right"></i>
+            Next <i class="fas fa-arrow-right"></i>
         </a>
         {% endif %}
     </div>
@@ -147,10 +147,10 @@
     {% else %}
     <div class="card" style="text-align:center;padding:3rem 2rem;color:var(--text3)">
         <div style="font-size:3rem;margin-bottom:1rem">💡</div>
-        <div style="font-size:1.1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">Идей пока нет</div>
-        <div>Будь первым — поделись своей идеей!</div>
+        <div style="font-size:1.1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">No ideas yet</div>
+        <div>Be the first — share your idea!</div>
         <a href="{{ url_for('idea_create') }}" class="btn btn-primary" style="margin-top:1rem">
-            <i class="fas fa-plus"></i> Создать идею
+            <i class="fas fa-plus"></i> Create idea
         </a>
     </div>
     {% endif %}
@@ -158,7 +158,7 @@
 
 <div class="sticky-col">
     <div class="sidebar-card">
-        <div class="sidebar-card-header"><i class="fas fa-code"></i> Технологии</div>
+        <div class="sidebar-card-header"><i class="fas fa-code"></i> Technologies</div>
         <div style="padding:0.75rem;display:flex;flex-wrap:wrap;gap:0.4rem">
             {% for t in technologies[:20] %}
             <a href="{{ url_for('ideas_feed', tech=t.name) }}"

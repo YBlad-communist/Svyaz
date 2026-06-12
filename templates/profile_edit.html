@@ -1,27 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Редактировать профиль — СвяZь{% endblock %}
+{% block title %}Edit Profile — DevConnect{% endblock %}
 {% block content %}
 <div style="max-width:720px;margin:0 auto">
     <div class="card">
         <div class="card-header">
-            <i class="fas fa-user-edit" style="color:var(--primary)"></i> Редактировать профиль
+            <i class="fas fa-user-edit" style="color:var(--primary)"></i> Edit Profile
         </div>
         <div style="padding:1.5rem">
             <form method="POST" action="{{ url_for('profile_edit') }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label class="form-label">О себе</label>
-                    <textarea name="bio" class="form-control" rows="3" placeholder="Расскажи о себе как о разработчике...">{{ current_user.bio }}</textarea>
+                    <label class="form-label">Bio</label>
+                    <textarea name="bio" class="form-control" rows="3" placeholder="Tell us about yourself as a developer...">{{ current_user.bio }}</textarea>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Местоположение</label>
-                    <input type="text" name="location" class="form-control" value="{{ current_user.location }}" placeholder="Город, страна">
+                    <label class="form-label">Location</label>
+                    <input type="text" name="location" class="form-control" value="{{ current_user.location }}" placeholder="City, country">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Веб-сайт</label>
+                    <label class="form-label">Website</label>
                     <input type="url" name="website" class="form-control" value="{{ current_user.website }}" placeholder="https://...">
                 </div>
 
@@ -31,9 +31,9 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label"><i class="fas fa-code" style="color:var(--primary)"></i> Основная роль</label>
+                    <label class="form-label"><i class="fas fa-code" style="color:var(--primary)"></i> Primary Role</label>
                     <select name="developer_role" class="form-control">
-                        <option value="">Не выбрано</option>
+                        <option value="">Not selected</option>
                         {% for role_key, role_label in developer_roles.items() %}
                         <option value="{{ role_key }}" {% if current_user.developer_role == role_key %}selected{% endif %}>{{ role_label }}</option>
                         {% endfor %}
@@ -41,8 +41,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label"><i class="fas fa-layer-group" style="color:var(--primary)"></i> Стек технологий</label>
-                    <input type="text" id="techSearch" class="form-control" placeholder="Поиск технологий..." style="margin-bottom:0.5rem;font-size:0.85rem" oninput="filterTechs(this.value)">
+                    <label class="form-label"><i class="fas fa-layer-group" style="color:var(--primary)"></i> Tech Stack</label>
+                    <input type="text" id="techSearch" class="form-control" placeholder="Search technologies..." style="margin-bottom:0.5rem;font-size:0.85rem" oninput="filterTechs(this.value)">
                     <div id="techList" style="display:flex;flex-wrap:wrap;gap:0.5rem;max-height:300px;overflow-y:auto;padding:0.75rem;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border)">
                         {% for cat_name, cat_techs in tech_by_category.items() %}
                         <div style="width:100%;margin:0.5rem 0 0.25rem;font-weight:600;color:var(--text2);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.05em" class="tech-category" data-category="{{ cat_name }}">
@@ -62,9 +62,9 @@
 
                 <div style="display:flex;gap:0.75rem;margin-top:1.5rem">
                     <button type="submit" class="btn btn-primary" style="flex:1">
-                        <i class="fas fa-save"></i> Сохранить
+                        <i class="fas fa-save"></i> Save
                     </button>
-                    <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-secondary">Отмена</a>
+                    <a href="{{ url_for('profile', username=current_user.username) }}" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>
@@ -72,16 +72,16 @@
 
     <div class="card" style="margin-top:1rem;border-color:rgba(239,68,68,0.3)">
         <div class="card-header" style="color:#ef4444">
-            <i class="fas fa-exclamation-triangle"></i> Опасная зона
+            <i class="fas fa-exclamation-triangle"></i> Danger Zone
         </div>
         <div style="padding:1.25rem">
             <p style="color:var(--text2);font-size:0.9rem;margin:0 0 1rem">
-                Удаление аккаунта анонимизирует ваш профиль. Все личные данные будут удалены.
+                Deleting your account will anonymize your profile. All personal data will be removed.
             </p>
-            <form method="POST" action="{{ url_for('delete_account') }}" onsubmit="return confirm('Вы уверены? Это действие нельзя отменить.')">
+            <form method="POST" action="{{ url_for('delete_account') }}" onsubmit="return confirm('Are you sure? This action cannot be undone.')">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-danger btn-sm">
-                    <i class="fas fa-trash"></i> Удалить аккаунт
+                    <i class="fas fa-trash"></i> Delete Account
                 </button>
             </form>
         </div>
