@@ -173,6 +173,13 @@ except redis.ConnectionError:
 except Exception:
     logger.exception('Unexpected error connecting to Redis')
 
+def regenerate_session():
+    """Regenerate session ID to prevent session fixation attacks."""
+    preserved = dict(session)
+    session.clear()
+    session.update(preserved)
+
+
 def get_real_ip():
     """Extracts real client IP considering X-Forwarded-For."""
     forwarded = request.headers.get('X-Forwarded-For', '')
@@ -286,6 +293,14 @@ def before_request():
                 return redirect(url_for('login'))
         except Exception:
             logger.warning('Failed to check Redis failed_attempts for %s', real_ip)
+
+@app.route('/.well-known/security.txt')
+def security_txt():
+    return send_from_directory(os.path.join(app.static_folder, '.well-known'), 'security.txt', mimetype='text/plain')
+
+@app.route('/robots.txt')
+def robots_txt():
+    return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain')
 
 @app.teardown_appcontext
 def teardown_session(exception):
@@ -409,7 +424,11 @@ def login():
             return redirect(url_for('login'))
 
         if user and check_password_hash(user.password_hash, password):
-            audit_logger.info('Login success: username=%s ip=%s', username, get_real_ip())
+            audit_logger.info('Login success (password): username=%s ip=%s', username, get_real_ip())
+            regenerate_session()
+            if user.totp_enabled:
+                session['totp_user_id'] = user.id
+                return redirect(url_for('totp_verify'))
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
             db.session.add(user)
@@ -644,6 +663,94 @@ def update_profile():
     db.session.commit()
     flash('Profile updated', 'success')
     return redirect(url_for('profile', username=current_user.username))
+
+
+# ------------------------------
+# 2FA / TOTP
+# ------------------------------
+try:
+    import pyotp
+    import qrcode
+    from qrcode.image.pil import PilImage
+    import io
+    import base64
+    HAS_TOTP = True
+except ImportError:
+    HAS_TOTP = False
+    logger.warning('pyotp or qrcode not installed — 2FA disabled')
+
+@app.route('/totp/verify', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
+def totp_verify():
+    if not HAS_TOTP:
+        return '2FA not available', 503
+    user_id = session.get('totp_user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+    user = db.session.get(User, user_id)
+    if not user or not user.totp_enabled:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        totp = pyotp.TOTP(user.totp_secret)
+        if totp.verify(code, valid_window=1):
+            session.pop('totp_user_id', None)
+            login_user(user, remember=True)
+            user.last_login = datetime.utcnow()
+            db.session.add(user)
+            db.session.commit()
+            flash('Welcome!', 'success')
+            return redirect(url_for('feed'))
+        flash('Invalid 2FA code', 'error')
+        audit_logger.warning('TOTP failed: user_id=%s ip=%s', user_id, get_real_ip())
+    return render_template('totp_verify.html')
+
+@app.route('/totp/setup', methods=['GET', 'POST'])
+@login_required
+@csrf_required
+def totp_setup():
+    if not HAS_TOTP:
+        return '2FA not available', 503
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        secret = session.get('totp_setup_secret')
+        if not secret:
+            flash('Session expired. Please try again.', 'error')
+            return redirect(url_for('totp_setup'))
+        totp = pyotp.TOTP(secret)
+        if totp.verify(code, valid_window=1):
+            current_user.totp_secret = secret
+            current_user.totp_enabled = True
+            db.session.add(current_user)
+            db.session.commit()
+            session.pop('totp_setup_secret', None)
+            flash('2FA enabled successfully!', 'success')
+            audit_logger.info('TOTP enabled: username=%s', current_user.username)
+            return redirect(url_for('profile_edit'))
+        flash('Invalid code. Try again.', 'error')
+        return redirect(url_for('totp_setup'))
+    secret = pyotp.random_base32()
+    session['totp_setup_secret'] = secret
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(current_user.email, issuer_name="Svyaz")
+    qr = qrcode.make(provisioning_uri)
+    buf = io.BytesIO()
+    qr.save(buf, format='PNG')
+    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+    return render_template('totp_setup.html', secret=secret, qr_data=qr_b64)
+
+@app.route('/totp/disable', methods=['POST'])
+@login_required
+@csrf_required
+def totp_disable():
+    current_user.totp_secret = None
+    current_user.totp_enabled = False
+    db.session.add(current_user)
+    db.session.commit()
+    flash('2FA disabled', 'success')
+    audit_logger.info('TOTP disabled: username=%s', current_user.username)
+    return redirect(url_for('profile_edit'))
+
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
 @login_required

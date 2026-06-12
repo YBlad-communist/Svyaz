@@ -70,6 +70,28 @@
         </div>
     </div>
 
+    <div class="card" style="margin-top:1rem;border-color:rgba(59,130,246,0.3)">
+        <div class="card-header" style="color:#3b82f6">
+            <i class="fas fa-shield-alt"></i> Security
+        </div>
+        <div style="padding:1.25rem">
+            {% if current_user.totp_enabled %}
+                <p style="color:var(--text2);font-size:0.9rem;margin:0 0 1rem">Two-factor authentication is <strong>enabled</strong>.</p>
+                <form method="POST" action="{{ url_for('totp_disable') }}" style="display:inline">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-warning btn-sm">
+                        <i class="fas fa-times-circle"></i> Disable 2FA
+                    </button>
+                </form>
+            {% else %}
+                <p style="color:var(--text2);font-size:0.9rem;margin:0 0 1rem">Add an extra layer of security to your account.</p>
+                <a href="{{ url_for('totp_setup') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-qrcode"></i> Enable 2FA
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="card" style="margin-top:1rem;border-color:rgba(239,68,68,0.3)">
         <div class="card-header" style="color:#ef4444">
             <i class="fas fa-exclamation-triangle"></i> Danger Zone

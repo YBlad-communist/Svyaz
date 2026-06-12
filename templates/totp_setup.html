@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup 2FA — Svyaz</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="auth-container">
+        <h1>Setup Two-Factor Authentication</h1>
+        <p>Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+        <div class="qr-wrapper">
+            <img src="data:image/png;base64,{{ qr_data }}" alt="2FA QR Code">
+        </div>
+        <p>Or enter this secret manually: <code>{{ secret }}</code></p>
+        <form method="POST">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>Enter the 6-digit code from the app</label>
+                <input type="text" name="code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Enable 2FA</button>
+        </form>
+    </div>
+</body>
+</html>

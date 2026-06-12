@@ -1,0 +1,5 @@
+# security.txt — https://securitytxt.org/
+Contact: mailto:admin@your-domain.com
+Expires: 2027-12-31T23:59:00.000Z
+Preferred-Languages: en, ru
+Canonical: https://your-domain.com/.well-known/security.txt
