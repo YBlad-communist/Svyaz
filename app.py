@@ -231,13 +231,13 @@ if not is_testing:
     }
     Talisman(app,
              force_https=os.environ.get('FLASK_ENV') == 'production',
-             strict_transport_security=True,
+             strict_transport_security=os.environ.get('FLASK_ENV') == 'production',
              strict_transport_security_max_age=31536000,
              strict_transport_security_include_subdomains=True,
              strict_transport_security_preload=True,
              content_security_policy=csp,
              content_security_policy_nonce_in=[],
-             session_cookie_secure=True,
+             session_cookie_secure=os.environ.get('FLASK_ENV') == 'production',
              referrer_policy='strict-origin-when-cross-origin',
              )
 
