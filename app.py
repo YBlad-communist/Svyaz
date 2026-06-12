@@ -221,10 +221,10 @@ if not is_testing:
     csp = {
         'default-src': "'none'",
         'script-src': "'self' 'unsafe-inline'",
-        'style-src': "'self' 'unsafe-inline'",
+        'style-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
         'img-src': "'self' data: https://ui-avatars.com",
         'connect-src': "'self' wss:",
-        'font-src': "'self'",
+        'font-src': "'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
         'form-action': "'self'",
         'frame-ancestors': "'none'",
         'base-uri': "'self'",
@@ -236,7 +236,7 @@ if not is_testing:
              strict_transport_security_include_subdomains=True,
              strict_transport_security_preload=True,
              content_security_policy=csp,
-             content_security_policy_nonce_in=['script-src'],
+             content_security_policy_nonce_in=[],
              session_cookie_secure=True,
              referrer_policy='strict-origin-when-cross-origin',
              )
