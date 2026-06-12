@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Recovery Codes{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 600px; margin: 2rem auto;">
+  <div class="card-header">
+    <h4>2FA Recovery Codes</h4>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-warning">
+      <strong>Save these codes!</strong> Each code can be used only once.
+      Store them in a safe place (e.g. password manager).
+      If you lose your 2FA device and have no recovery codes, you will be locked out.
+    </div>
+    <div class="recovery-codes" style="font-family: monospace; font-size: 1.1rem; background: #f5f5f5; padding: 1rem; border-radius: 4px; margin: 1rem 0;">
+      {% for code in codes %}
+        <div style="padding: 4px 0;">{{ loop.index }}. {{ code }}</div>
+      {% endfor %}
+    </div>
+    <button class="btn btn-primary" onclick="printCodes()">Print</button>
+    <a href="{{ url_for('profile_edit') }}" class="btn btn-secondary">Done — I saved them</a>
+  </div>
+</div>
+<script>
+function printCodes() {
+  var content = document.querySelector('.recovery-codes').innerText;
+  var w = window.open('', '', 'width=400,height=400');
+  w.document.write('<pre>' + content + '</pre>');
+  w.document.close();
+  w.print();
+}
+</script>
+{% endblock %}

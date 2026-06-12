@@ -140,16 +140,32 @@ else:
 
 
 # ============================================================
-# Redis
+# Redis with Sentinel support
 # ============================================================
 redis_available = False
 redis_client = None
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', '')
+REDIS_SENTINEL_HOSTS = os.environ.get('REDIS_SENTINEL_HOSTS', '')
 try:
-    redis_client = redis.Redis(host=os.environ.get('REDIS_HOST', 'localhost'),
-                               port=int(os.environ.get('REDIS_PORT', 6379)),
-                               db=0, decode_responses=True, socket_connect_timeout=2)
-    redis_client.ping()
-    redis_available = True
+    if REDIS_SENTINEL_HOSTS:
+        sentinel_hosts = [
+            (part.split(':')[0], int(part.split(':')[1]) if ':' in part else 26379)
+            for part in REDIS_SENTINEL_HOSTS.split(',')
+        ]
+        from redis.sentinel import Sentinel
+        sentinel = Sentinel(sentinel_hosts, password=REDIS_PASSWORD or None,
+                            socket_connect_timeout=2, decode_responses=True)
+        redis_client = sentinel.master_for('mymaster', db=0, password=REDIS_PASSWORD or None)
+        redis_client.ping()
+        redis_available = True
+        logger.info('Connected via Redis Sentinel (%s)', REDIS_SENTINEL_HOSTS)
+    else:
+        redis_client = redis.Redis(host=os.environ.get('REDIS_HOST', 'localhost'),
+                                   port=int(os.environ.get('REDIS_PORT', 6379)),
+                                   db=0, decode_responses=True, socket_connect_timeout=2,
+                                   password=REDIS_PASSWORD or None)
+        redis_client.ping()
+        redis_available = True
 except redis.ConnectionError:
     logger.warning('Redis not available — in-memory fallback')
 except Exception:
@@ -197,6 +213,33 @@ app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=7)
 app.config['WTF_CSRF_TIME_LIMIT'] = 3600
 
 db.init_app(app)
+
+# ---------------------------------------------------------------------------
+# Talisman (HTTPS / Security Headers / CSP)
+# ---------------------------------------------------------------------------
+if not is_testing:
+    csp = {
+        'default-src': "'none'",
+        'script-src': "'self' 'unsafe-inline'",
+        'style-src': "'self' 'unsafe-inline'",
+        'img-src': "'self' data: https://ui-avatars.com",
+        'connect-src': "'self' wss:",
+        'font-src': "'self'",
+        'form-action': "'self'",
+        'frame-ancestors': "'none'",
+        'base-uri': "'self'",
+    }
+    Talisman(app,
+             force_https=os.environ.get('FLASK_ENV') == 'production',
+             strict_transport_security=True,
+             strict_transport_security_max_age=31536000,
+             strict_transport_security_include_subdomains=True,
+             strict_transport_security_preload=True,
+             content_security_policy=csp,
+             content_security_policy_nonce_in=['script-src'],
+             session_cookie_secure=True,
+             referrer_policy='strict-origin-when-cross-origin',
+             )
 
 # SocketIO for real-time (optional)
 if HAS_SOCKETIO:
@@ -403,8 +446,25 @@ def totp_verify():
             db.session.commit()
             flash('Welcome!', 'success')
             return redirect(url_for('feed'))
+        # Check recovery codes
+        from module import RecoveryCode
+        recovery = RecoveryCode.query.filter_by(user_id=user.id, is_used=False).all()
+        for rc in recovery:
+            if check_password_hash(rc.code_hash, code):
+                rc.is_used = True
+                rc.used_at = datetime.utcnow()
+                db.session.add(rc)
+                db.session.commit()
+                session.pop('totp_user_id', None)
+                regenerate_session()
+                login_user(user, remember=True)
+                user.last_login = datetime.utcnow()
+                db.session.add(user)
+                db.session.commit()
+                flash('Recovery code used. Please set up a new 2FA device.', 'warning')
+                return redirect(url_for('totp_setup'))
         flash('Invalid 2FA code', 'error')
-        audit_logger.warning('TOTP failed', extra={'user_id': user_id, 'ip': get_real_ip()})
+        audit_logger.warning('TOTP failed', extra={'user_id': user.id, 'ip': get_real_ip()})
     return render_template('totp_verify.html')
 
 
@@ -424,11 +484,22 @@ def totp_setup():
             current_user.totp_secret = secret
             current_user.totp_enabled = True
             db.session.add(current_user)
+            # Generate 10 recovery codes
+            from module import RecoveryCode
+            RecoveryCode.query.filter_by(user_id=current_user.id).delete()
+            raw_codes = []
+            for _ in range(10):
+                raw = secrets.token_hex(8)
+                raw_codes.append(raw)
+                db.session.add(RecoveryCode(
+                    user_id=current_user.id,
+                    code_hash=generate_password_hash(raw, method='pbkdf2:sha256', salt_length=16),
+                ))
             db.session.commit()
             session.pop('totp_setup_secret', None)
-            flash('2FA enabled!', 'success')
+            flash('2FA enabled! Save your recovery codes — they won\'t be shown again.', 'success')
             audit_logger.info('TOTP enabled', extra={'username': current_user.username})
-            return redirect(url_for('profile_edit'))
+            return render_template('totp_recovery_codes.html', codes=raw_codes)
         flash('Invalid code', 'error')
         return redirect(url_for('totp_setup'))
     secret = pyotp.random_base32()
@@ -566,6 +637,89 @@ def e2ee_messages(chat_id):
 
 
 # ---------------------------------------------------------------------------
+# Group E2EE session management
+# ---------------------------------------------------------------------------
+@app.route('/api/e2ee/session', methods=['POST'])
+@login_required
+@limiter.limit("30 per hour")
+def e2ee_save_session():
+    """Save or update a Signal session for a group participant."""
+    data = request.get_json(silent=True)
+    if not data or not data.get('chat_id') or not data.get('their_identity_key'):
+        return jsonify({'error': 'chat_id, their_identity_key required'}), 400
+    chat = db.session.get(Chat, data['chat_id'])
+    if not chat or current_user not in chat.participants:
+        return jsonify({'error': 'Chat not found'}), 404
+    session_obj = SignalSession.query.filter_by(
+        chat_id=chat.id, user_id=current_user.id
+    ).first()
+    if session_obj:
+        session_obj.their_identity_key = data['their_identity_key']
+        session_obj.our_ephemeral_key = data.get('our_ephemeral_key', session_obj.our_ephemeral_key)
+        session_obj.session_data = data.get('session_data', session_obj.session_data)
+    else:
+        session_obj = SignalSession(
+            chat_id=chat.id,
+            user_id=current_user.id,
+            their_identity_key=data['their_identity_key'],
+            our_ephemeral_key=data.get('our_ephemeral_key', ''),
+            session_data=data.get('session_data', ''),
+        )
+        db.session.add(session_obj)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/e2ee/session/<int:chat_id>')
+@login_required
+@limiter.limit("30 per hour")
+def e2ee_get_session(chat_id):
+    """Get the current user's Signal session for a chat."""
+    chat = db.session.get(Chat, chat_id)
+    if not chat or current_user not in chat.participants:
+        return jsonify({'error': 'Chat not found'}), 404
+    session_obj = SignalSession.query.filter_by(
+        chat_id=chat.id, user_id=current_user.id
+    ).first()
+    if not session_obj:
+        return jsonify({'error': 'No session'}), 404
+    return jsonify({
+        'their_identity_key': session_obj.their_identity_key,
+        'our_ephemeral_key': session_obj.our_ephemeral_key,
+        'session_data': session_obj.session_data,
+        'created_at': session_obj.created_at.isoformat(),
+    })
+
+
+@app.route('/api/e2ee/session/<int:chat_id>/delete', methods=['DELETE'])
+@login_required
+def e2ee_delete_session(chat_id):
+    """Delete the current user's Signal session for a chat."""
+    SignalSession.query.filter_by(chat_id=chat_id, user_id=current_user.id).delete()
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/e2ee/group-keys/<int:chat_id>')
+@login_required
+def e2ee_group_keys(chat_id):
+    """Get all participants' identity keys for a group chat (E2EE)."""
+    chat = db.session.get(Chat, chat_id)
+    if not chat or not chat.is_group or current_user not in chat.participants:
+        return jsonify({'error': 'Group chat not found'}), 404
+    participants = User.query.join(chat_participants).filter(
+        chat_participants.c.chat_id == chat.id,
+        User.identity_public_key.isnot(None),
+        User.id != current_user.id,
+    ).all()
+    return jsonify([{
+        'user_id': p.id,
+        'username': p.username,
+        'identity_key': p.identity_public_key,
+    } for p in participants])
+
+
+# ---------------------------------------------------------------------------
 # WebSocket events (conditional)
 if HAS_SOCKETIO and socketio:
 
@@ -688,6 +842,11 @@ def login():
         if user and check_password_hash(user.password_hash, password):
             audit_logger.info('Login password OK', extra={'username': username, 'ip': real_ip})
             regenerate_session()
+            # Enforce 2FA for admins
+            if user.is_admin and not user.totp_enabled:
+                flash('Admins must enable 2FA. Please set it up.', 'warning')
+                login_user(user, remember=False)
+                return redirect(url_for('totp_setup'))
             if user.totp_enabled:
                 session['totp_user_id'] = user.id
                 return redirect(url_for('totp_verify'))

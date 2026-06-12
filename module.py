@@ -145,6 +145,9 @@ class User(UserMixin, db.Model):
     # E2EE prekeys
     prekeys = db.relationship('PreKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
 
+    # 2FA recovery codes
+    recovery_codes = db.relationship('RecoveryCode', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
 
@@ -379,6 +382,19 @@ class Notification(db.Model):
     read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+
+# ============================================================
+# 2FA Recovery Codes
+# ============================================================
+class RecoveryCode(db.Model):
+    __tablename__ = 'recovery_codes'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    code_hash = db.Column(db.String(128), nullable=False)
+    is_used = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    used_at = db.Column(db.DateTime, nullable=True)
 
 
 # ============================================================
