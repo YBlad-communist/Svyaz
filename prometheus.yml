@@ -1,0 +1,27 @@
+# Prometheus configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'svyaz'
+    static_configs:
+      - targets: ['web:8000']
+    metrics_path: '/metrics'
+    scheme: http
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['db:9187']  # postgres_exporter
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:9121']  # redis_exporter
+
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:9113']  # nginx_exporter
+
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']  # node_exporter on host

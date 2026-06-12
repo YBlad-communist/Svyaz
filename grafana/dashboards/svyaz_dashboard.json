@@ -1,0 +1,54 @@
+{
+  "title": "Svyaz — Production Dashboard",
+  "tags": ["svyaz", "production"],
+  "schemaVersion": 36,
+  "version": 1,
+  "panels": [
+    {
+      "title": "HTTP Requests/sec",
+      "type": "graph",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(flask_http_request_duration_seconds_count[5m])",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    },
+    {
+      "title": "Error Rate (5xx)",
+      "type": "graph",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(flask_http_request_duration_seconds_count{status=~\"5..\"}[5m])",
+          "legendFormat": "5xx"
+        }
+      ]
+    },
+    {
+      "title": "Active Users",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 8, "w": 4, "h": 4},
+      "targets": [{"expr": "sum(flask_http_request_duration_seconds_count[5m])"}]
+    },
+    {
+      "title": "Response Time (p95)",
+      "type": "gauge",
+      "gridPos": {"x": 4, "y": 8, "w": 4, "h": 4},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(flask_http_request_duration_seconds_bucket[5m])) by (le))"}]
+    },
+    {
+      "title": "DB Connections",
+      "type": "graph",
+      "gridPos": {"x": 8, "y": 8, "w": 8, "h": 4},
+      "targets": [{"expr": "pg_stat_database_numbackends"}]
+    },
+    {
+      "title": "Redis Memory",
+      "type": "graph",
+      "gridPos": {"x": 16, "y": 8, "w": 8, "h": 4},
+      "targets": [{"expr": "redis_memory_used_bytes"}]
+    }
+  ]
+}

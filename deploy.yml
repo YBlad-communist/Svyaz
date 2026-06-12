@@ -1,0 +1,94 @@
+# Ansible playbook — Deploy Svyaz to production
+# Usage: ansible-playbook -i inventory deploy.yml
+---
+- name: Deploy Svyaz
+  hosts: svyaz
+  become: yes
+  vars:
+    domain: "{{ ansible_default_ipv4.address }}"
+    docker_compose_version: "v2.27.0"
+
+  tasks:
+    - name: Install system dependencies
+      apt:
+        name:
+          - docker.io
+          - docker-compose-plugin
+          - python3-pip
+          - git
+          - ufw
+          - fail2ban
+        state: present
+        update_cache: yes
+
+    - name: Configure UFW
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: tcp
+      loop:
+        - { rule: allow, port: 22 }
+        - { rule: allow, port: 80 }
+        - { rule: allow, port: 443 }
+      notify: enable ufw
+
+    - name: Clone repository
+      git:
+        repo: https://github.com/YBlad-communist/Svyaz.git
+        dest: /opt/svyaz
+        version: main
+        force: yes
+
+    - name: Create secrets directory
+      file:
+        path: /opt/svyaz/secrets
+        state: directory
+        mode: 0700
+
+    - name: Generate secrets
+      shell: |
+        openssl rand -hex 32 > /opt/svyaz/secrets/db_password.txt
+        openssl rand -hex 32 > /opt/svyaz/secrets/grafana_admin_password.txt
+      args:
+        creates: /opt/svyaz/secrets/db_password.txt
+
+    - name: Create .env file
+      copy:
+        dest: /opt/svyaz/.env
+        content: |
+          SECRET_KEY="{{ lookup('password', '/dev/null chars=64') }}"
+          FLASK_ENV=production
+          FLASK_DEBUG=0
+          DOMAIN={{ domain }}
+          SENTRY_DSN=
+          S3_BACKUP_BUCKET=
+        mode: 0600
+
+    - name: Create certbot directories
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - /opt/svyaz/certbot/conf
+        - /opt/svyaz/certbot/www
+
+    - name: Deploy Docker stack
+      shell:
+        cmd: docker compose up -d --remove-orphans --build
+        chdir: /opt/svyaz
+
+    - name: Health check
+      uri:
+        url: "http://localhost:8000/health"
+        timeout: 30
+      register: health
+      retries: 12
+      delay: 5
+      until: health.status == 200
+
+  handlers:
+    - name: enable ufw
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming

@@ -55,6 +55,8 @@ def _app_ctx():
 @pytest.fixture
 def client():
     app.config['TESTING'] = True
+    app.config['WTF_CSRF_ENABLED'] = False
+    app.config['LOGIN_DISABLED'] = False
     with app.test_client() as c:
         with app.app_context():
             yield c

@@ -1,6 +1,8 @@
 import os
 import secrets
 import logging
+import base64
+import io
 from datetime import datetime, timedelta
 from functools import wraps
 from urllib.parse import urlparse
@@ -8,7 +10,16 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, g, send_from_directory, abort
+# nh3 import guard
+try:
+    import nh3
+except ImportError:
+    raise RuntimeError(
+        "nh3[security] is not installed! Run: pip install 'nh3[security]>=0.2.18'"
+    )
+
+from flask import (Flask, render_template, request, jsonify, session,
+                   redirect, url_for, flash, g, send_from_directory, abort)
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from sqlalchemy.orm import joinedload, selectinload
 from flask_limiter import Limiter, util
@@ -16,119 +27,121 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from flask_talisman import Talisman
+from flask_wtf.csrf import CSRFProtect
+try:
+    from flask_socketio import SocketIO, emit, join_room, leave_room
+    HAS_SOCKETIO = True
+except ImportError:
+    HAS_SOCKETIO = False
+try:
+    from flask_caching import Cache
+    HAS_CACHING = True
+except ImportError:
+    HAS_CACHING = False
+try:
+    from prometheus_flask_exporter import PrometheusMetrics
+    HAS_METRICS = True
+except ImportError:
+    HAS_METRICS = False
+try:
+    from pythonjsonlogger import jsonlogger
+    HAS_JSON_LOG = True
+except ImportError:
+    HAS_JSON_LOG = False
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    HAS_SENTRY = True
+except ImportError:
+    HAS_SENTRY = False
 import redis
 
 from database import db
-from module import User, Post, Like, Comment, Follow, Message, Notification, Chat, chat_participants,PinnedMessage, Reaction, sanitize_html, validate_url, validate_password,Hashtag, post_hashtags, Technology, Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes, idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite, channel_members, validate_email, validate_username
+from module import (User, Post, Like, Comment, Follow, Message, Notification, Chat,
+    chat_participants, PinnedMessage, Reaction, EncryptedMessage, PreKey, SignalSession,
+    sanitize_html, validate_url, validate_password, Hashtag, post_hashtags, Technology,
+    Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes,
+    idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,
+    Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite,
+    channel_members, validate_email, validate_username,
+    get_file_type, extract_and_link_hashtags, safe_save_file)
 
 
+# ============================================================
+# Secret key validation
+# ============================================================
 _secret_key = os.environ.get('SECRET_KEY')
 if not _secret_key:
     raise RuntimeError(
         "SECRET_KEY is not set! Generate: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
     )
 
+
+# Support Docker Secrets for DB password
+def _resolve_db_uri():
+    uri = os.environ.get('DATABASE_URL', '')
+    if uri:
+        return uri
+    password_file = os.environ.get('POSTGRES_PASSWORD_FILE')
+    if password_file:
+        try:
+            with open(password_file) as f:
+                pw = f.read().strip()
+            return f"postgresql+psycopg2://svyaz:{pw}@db:5432/svyaz"
+        except (FileNotFoundError, IOError):
+            pass
+    pw = os.environ.get('POSTGRES_PASSWORD', '')
+    if pw:
+        return f"postgresql+psycopg2://svyaz:{pw}@db:5432/svyaz"
+    return os.environ.get('DATABASE_URL', 'sqlite:///social_media.db')
+
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'uploads'))
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','mp4','webm','ogg','mov','pdf','doc','docx','txt'}
-logging.basicConfig(level=logging.INFO)
+
+
+# ============================================================
+# Sentry (error tracking) — enable if SENTRY_DSN is set
+if HAS_SENTRY:
+    sentry_dsn = os.environ.get('SENTRY_DSN', '')
+    if sentry_dsn:
+        sentry_sdk.init(
+            dsn=sentry_dsn,
+            integrations=[FlaskIntegration()],
+            traces_sample_rate=0.1,
+            environment=os.environ.get('FLASK_ENV', 'production'),
+        )
+
+
+# JSON logger for production (stdout)
+if HAS_JSON_LOG:
+    log_handler = logging.StreamHandler()
+    log_handler.setFormatter(jsonlogger.JsonFormatter(
+        fmt='%(asctime)s %(name)s %(levelname)s %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S',
+    ))
+    logging.basicConfig(level=logging.INFO, handlers=[log_handler])
+else:
+    logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-app.config['SECRET_KEY'] = _secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///social_media.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = 86400
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-for folder in ['images', 'videos', 'files', 'avatars', 'group_avatars', 'temp']:
-    os.makedirs(os.path.join(UPLOAD_FOLDER, folder), exist_ok=True)
-
-db.init_app(app)
-
-import re as _re
-
-def extract_and_link_hashtags(text, post_obj=None):
-    if not text:
-        return text
-    tags = set(_re.findall(r'#([\w\u0400-\u04ff]+)', text, _re.UNICODE))
-    if post_obj and tags:
-        for tag_name in tags:
-            tag_name_lower = tag_name.lower()
-            ht = Hashtag.query.filter_by(name=tag_name_lower).first()
-            if not ht:
-                ht = Hashtag(name=tag_name_lower, posts_count=1)
-                db.session.add(ht)
-            else:
-                ht.posts_count = (ht.posts_count or 0) + 1
-            if ht not in post_obj.hashtags.all():
-                post_obj.hashtags.append(ht)
-    return text
+audit_logger = logging.getLogger('audit')
+if HAS_JSON_LOG:
+    audit_handler = logging.StreamHandler()
+    audit_handler.setFormatter(jsonlogger.JsonFormatter(
+        fmt='%(asctime)s audit %(message)s',
+    ))
+    audit_logger.addHandler(audit_handler)
+    audit_logger.setLevel(logging.INFO)
+    audit_logger.propagate = False
+else:
+    audit_logger = logger
 
 
-def get_file_type(filepath):
-    with open(filepath, 'rb') as f:
-        header = f.read(12)
-    if header[:2] == b'\xff\xd8': return 'image/jpeg'
-    if header[:8] == b'\x89PNG\r\n\x1a\n': return 'image/png'
-    if header[:6] in (b'GIF87a', b'GIF89a'): return 'image/gif'
-    if header[:4] == b'RIFF' and header[8:12] == b'WEBP': return 'image/webp'
-    if header[4:8] == b'ftyp' or (len(header) >= 8 and header[4:8] == b'moov'): return 'video/mp4'
-    if header[:4] == b'\x1a\x45\xdf\xa3': return 'video/webm'
-    if header[:4] == b'OggS': return 'video/ogg'
-    if header[:4] == b'%PDF': return 'application/pdf'
-    if header[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1': return 'application/msword'
-    if header[:4] == b'PK\x03\x04': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    return 'text/plain'
-
-
-def safe_save_file(file, prefix, allowed_types=None):
-    """Saves a file with MIME-type validation.
-    allowed_types: 'image', 'video', 'file', or None (all allowed).
-    """
-    if not file or file.filename == '':
-        return None, None
-    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-    if ext not in ALLOWED_EXTENSIONS:
-        return None, None
-    random_name = secrets.token_urlsafe(16)
-    filename = f"{random_name}.{ext}"
-    temp_dir = os.path.join(UPLOAD_FOLDER, 'temp')
-    os.makedirs(temp_dir, exist_ok=True)
-    temp_path = os.path.join(temp_dir, filename)
-    file.save(temp_path)
-    mime = get_file_type(temp_path)
-    allowed_mimes = [
-        'image/jpeg','image/png','image/gif','image/webp',
-        'video/mp4','video/webm','video/ogg',
-        'application/pdf','text/plain','application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    ]
-    if mime not in allowed_mimes:
-        os.remove(temp_path)
-        return None, None
-    if allowed_types == 'image' and not mime.startswith('image/'):
-        os.remove(temp_path)
-        return None, None
-    if allowed_types == 'video' and not mime.startswith('video/'):
-        os.remove(temp_path)
-        return None, None
-    if mime.startswith('image/'): folder, media_type = 'images', 'image'
-    elif mime.startswith('video/'): folder, media_type = 'videos', 'video'
-    else: folder, media_type = 'files', 'file'
-    final_dir = os.path.join(UPLOAD_FOLDER, folder)
-    os.makedirs(final_dir, exist_ok=True)
-    final_path = os.path.join(final_dir, filename)
-    os.renames(temp_path, final_path)
-    return f"/uploads/{folder}/{filename}", media_type
-
-# ------------------------------
-# Redis / Limiter
-# ------------------------------
+# ============================================================
+# Redis
+# ============================================================
 redis_available = False
 redis_client = None
 try:
@@ -138,66 +151,94 @@ try:
     redis_client.ping()
     redis_available = True
 except redis.ConnectionError:
-    logger.warning('Redis connection failed, falling back to in-memory storage')
+    logger.warning('Redis not available — in-memory fallback')
 except Exception:
-    logger.exception('Unexpected error connecting to Redis')
+    logger.exception('Redis connection error')
+
+
+def regenerate_session():
+    """Regenerate session ID to prevent session fixation attacks."""
+    preserved = dict(session)
+    session.clear()
+    session.update(preserved)
+
 
 def get_real_ip():
-    """Extracts real client IP considering X-Forwarded-For."""
+    """Extract real IP considering X-Forwarded-For."""
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         return forwarded.split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
 
+
+app = Flask(__name__)
+
+
 is_testing = os.environ.get('FLASK_ENV') == 'testing'
 limiter = Limiter(
-                  app=app,
-                  key_func=get_real_ip,
-                  default_limits=[] if is_testing else ["200 per day", "50 per hour"],
-                  storage_uri="redis://localhost:6379" if (redis_available and not is_testing) else "memory://",
-                  enabled=not is_testing)
+    app=app,
+    key_func=get_real_ip,
+    default_limits=[] if is_testing else ["200 per day", "50 per hour"],
+    storage_uri="redis://localhost:6379" if (redis_available and not is_testing) else "memory://",
+    enabled=not is_testing)
 
-# ------------------------------
-# Talisman
-# ------------------------------
-is_production = os.environ.get('FLASK_ENV', 'development') == 'production'
-app.config['SESSION_COOKIE_SECURE'] = is_production
 
-csp = {
-    'default-src': "'self'",
-    'script-src': "'self' 'unsafe-inline'",
-    'style-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com",
-    'font-src': "'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com",
-    'img-src': "'self' https://ui-avatars.com data: blob:",
-    'object-src': "'none'",
-    'base-uri': "'self'",
-    'form-action': "'self'",
-    'frame-ancestors': "'none'",
-}
-Talisman(app, content_security_policy=csp,
-         force_https=is_production,
-         strict_transport_security=is_production,
-         strict_transport_security_max_age=31536000 if is_production else 0,
-         session_cookie_secure=is_production,
-         force_https_permanent=is_production)
+app.config['SECRET_KEY'] = _secret_key
+app.config['SQLALCHEMY_DATABASE_URI'] = _resolve_db_uri()
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=7)
+app.config['WTF_CSRF_TIME_LIMIT'] = 3600
 
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+db.init_app(app)
 
-# ------------------------------
-# Flask-Login and CSRF
-# ------------------------------
+# SocketIO for real-time (optional)
+if HAS_SOCKETIO:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet',
+                        message_queue=f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}/4"
+                        if os.environ.get('REDIS_HOST') else None)
+else:
+    socketio = None
+
+# Prometheus metrics (optional)
+if HAS_METRICS:
+    metrics = PrometheusMetrics(app, group_by='endpoint')
+    metrics.info('svyaz_info', 'Svyaz application info', version='2.0.0')
+else:
+    metrics = None
+
+# Flask-Caching
+if HAS_CACHING:
+    app.config['CACHE_TYPE'] = 'RedisCache' if os.environ.get('REDIS_HOST') else 'SimpleCache'
+    app.config['CACHE_REDIS_URL'] = f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}/3"
+    cache = Cache(app)
+
+# Flask-WTF CSRF (global)
+csrf = CSRFProtect(app)
+
+
+# ---------------------------------------------------------------------------
+# Flask-Login + CSRF validation
+# ---------------------------------------------------------------------------
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.session_protection = "strong"
+
 
 def generate_csrf_token():
     if '_csrf_token' not in session:
         session['_csrf_token'] = secrets.token_hex(32)
     return session['_csrf_token']
 
+
 def validate_csrf_token():
-    """Validates CSRF token from form/JSON. Returns True if valid."""
     token = session.get('_csrf_token')
     if not token:
         return False
@@ -208,34 +249,36 @@ def validate_csrf_token():
             form_token = form_token or data.get('_csrf_token')
     return form_token is not None and secrets.compare_digest(token, form_token)
 
+
 def csrf_required(f):
-    """Decorator: requires valid CSRF token for POST/PUT/DELETE requests."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if request.method in ('POST', 'PUT', 'DELETE'):
             if not validate_csrf_token():
-                logger.warning('CSRF validation failed for %s from %s', request.path, request.remote_addr)
+                logger.warning('CSRF failed: %s from %s', request.path, request.remote_addr)
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return jsonify({'error': 'CSRF token invalid or missing'}), 403
-                flash('Security check failed (CSRF). Please refresh the page.', 'error')
+                    return jsonify({'error': 'CSRF token missing'}), 403
+                flash('Security check failed. Refresh and try again.', 'error')
                 return redirect(request.referrer or url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
 
+
 app.jinja_env.globals['csrf_token'] = generate_csrf_token
 app.jinja_env.globals['now'] = datetime.utcnow
-app.jinja_env.globals['datetime'] = datetime.utcnow
+
 
 @login_manager.user_loader
 def load_user(user_id):
     user = db.session.get(User, int(user_id))
-    if user and user.is_deleted:
+    if user and (user.is_deleted or user.is_blocked):
         return None
     return user
 
-# ------------------------------
+
+# ---------------------------------------------------------------------------
 # Before/After request
-# ------------------------------
+# ---------------------------------------------------------------------------
 @app.before_request
 def before_request():
     g.user = current_user
@@ -248,18 +291,19 @@ def before_request():
         try:
             failed = redis_client.get(f"failed_attempts:{real_ip}")
             if failed and int(failed) >= 5:
-                logger.warning('Brute-force lockout for IP %s (%s failed attempts)', real_ip, failed)
+                logger.warning('Lockout IP %s (%s attempts)', real_ip, failed)
                 if request.is_json:
-                    return jsonify({'error': 'Too many failed attempts. Try again in 15 minutes.'}), 429
-                flash('Too many failed attempts. Please try again in 15 minutes.', 'error')
+                    return jsonify({'error': 'Too many attempts. Try again in 15 minutes.'}), 429
+                flash('Too many attempts. Try again later.', 'error')
                 return redirect(url_for('login'))
         except Exception:
-            logger.warning('Failed to check Redis failed_attempts for %s', real_ip)
+            pass
+
 
 @app.teardown_appcontext
 def teardown_session(exception):
-    """Ensures DB session is closed after each request."""
     db.session.remove()
+
 
 @app.after_request
 def after_request(response):
@@ -267,12 +311,286 @@ def after_request(response):
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
     return response
 
-# ------------------------------
+
+# ---------------------------------------------------------------------------
+# .well-known / security
+# ---------------------------------------------------------------------------
+@app.route('/.well-known/security.txt')
+def security_txt():
+    return send_from_directory(os.path.join(app.static_folder, '.well-known'), 'security.txt', mimetype='text/plain')
+
+
+@app.route('/robots.txt')
+def robots_txt():
+    return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain')
+
+
+# ---------------------------------------------------------------------------
+# Health / Readiness
+# ---------------------------------------------------------------------------
+@app.route('/health')
+@csrf.exempt
+def health():
+    db_ok = False
+    redis_ok = False
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        db_ok = True
+    except Exception:
+        pass
+    try:
+        if redis_available:
+            redis_client.ping()
+            redis_ok = True
+    except Exception:
+        pass
+    status = 200 if db_ok else 503
+    response = jsonify({
+        'status': 'healthy' if status == 200 else 'degraded',
+        'database': 'ok' if db_ok else 'down',
+        'redis': 'ok' if redis_ok else 'down',
+        'version': '2.0.0',
+        'timestamp': datetime.utcnow().isoformat(),
+    })
+    return response, status
+
+
+@app.route('/readiness')
+def readiness():
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({'status': 'ready'}), 200
+    except Exception:
+        return jsonify({'status': 'not ready'}), 503
+
+
+# ---------------------------------------------------------------------------
+# TOTP / 2FA
+# ---------------------------------------------------------------------------
+try:
+    import pyotp
+    import qrcode
+    from qrcode.image.pil import PilImage
+    HAS_TOTP = True
+except ImportError:
+    HAS_TOTP = False
+    logger.warning('pyotp/qrcode not installed — 2FA disabled')
+
+
+@app.route('/totp/verify', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
+def totp_verify():
+    if not HAS_TOTP:
+        return '2FA not available', 503
+    user_id = session.get('totp_user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+    user = db.session.get(User, user_id)
+    if not user or not user.totp_enabled:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        totp = pyotp.TOTP(user.totp_secret)
+        if totp.verify(code, valid_window=1):
+            session.pop('totp_user_id', None)
+            regenerate_session()
+            login_user(user, remember=True)
+            user.last_login = datetime.utcnow()
+            db.session.add(user)
+            db.session.commit()
+            flash('Welcome!', 'success')
+            return redirect(url_for('feed'))
+        flash('Invalid 2FA code', 'error')
+        audit_logger.warning('TOTP failed', extra={'user_id': user_id, 'ip': get_real_ip()})
+    return render_template('totp_verify.html')
+
+
+@app.route('/totp/setup', methods=['GET', 'POST'])
+@login_required
+def totp_setup():
+    if not HAS_TOTP:
+        return '2FA not available', 503
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        secret = session.get('totp_setup_secret')
+        if not secret:
+            flash('Session expired. Try again.', 'error')
+            return redirect(url_for('totp_setup'))
+        totp = pyotp.TOTP(secret)
+        if totp.verify(code, valid_window=1):
+            current_user.totp_secret = secret
+            current_user.totp_enabled = True
+            db.session.add(current_user)
+            db.session.commit()
+            session.pop('totp_setup_secret', None)
+            flash('2FA enabled!', 'success')
+            audit_logger.info('TOTP enabled', extra={'username': current_user.username})
+            return redirect(url_for('profile_edit'))
+        flash('Invalid code', 'error')
+        return redirect(url_for('totp_setup'))
+    secret = pyotp.random_base32()
+    session['totp_setup_secret'] = secret
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(current_user.email, issuer_name="Svyaz")
+    qr = qrcode.make(provisioning_uri)
+    buf = io.BytesIO()
+    qr.save(buf, format='PNG')
+    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+    return render_template('totp_setup.html', secret=secret, qr_data=qr_b64)
+
+
+@app.route('/totp/disable', methods=['POST'])
+@login_required
+def totp_disable():
+    current_user.totp_secret = None
+    current_user.totp_enabled = False
+    db.session.add(current_user)
+    db.session.commit()
+    flash('2FA disabled', 'success')
+    audit_logger.info('TOTP disabled', extra={'username': current_user.username})
+    return redirect(url_for('profile_edit'))
+
+
+# ---------------------------------------------------------------------------
+# E2EE Key Exchange
+# ---------------------------------------------------------------------------
+@app.route('/api/e2ee/identity-key', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per hour")
+def e2ee_identity_key():
+    if request.method == 'POST':
+        data = request.get_json(silent=True)
+        if not data or not data.get('public_key'):
+            return jsonify({'error': 'public_key required'}), 400
+        current_user.identity_public_key = data['public_key']
+        db.session.add(current_user)
+        db.session.commit()
+        audit_logger.info('E2EE identity key set', extra={'username': current_user.username})
+        return jsonify({'success': True})
+    # GET: return this user's identity key
+    if current_user.identity_public_key:
+        return jsonify({'public_key': current_user.identity_public_key})
+    return jsonify({'error': 'No key set'}), 404
+
+
+@app.route('/api/e2ee/prekeys', methods=['POST'])
+@login_required
+@limiter.limit("30 per hour")
+def e2ee_upload_prekeys():
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data.get('prekeys'), list):
+        return jsonify({'error': 'prekeys list required'}), 400
+    for pk in data['prekeys']:
+        if pk.get('key_id') is None or not pk.get('public_key'):
+            continue
+        existing = PreKey.query.filter_by(user_id=current_user.id, key_id=pk['key_id']).first()
+        if not existing:
+            db.session.add(PreKey(user_id=current_user.id, key_id=pk['key_id'], public_key=pk['public_key']))
+    db.session.commit()
+    return jsonify({'success': True, 'count': len(data['prekeys'])})
+
+
+@app.route('/api/e2ee/prekeys/<int:user_id>', methods=['GET'])
+@login_required
+@limiter.limit("60 per hour")
+def e2ee_get_prekeys(user_id):
+    user = db.session.get(User, user_id)
+    if not user or not user.identity_public_key:
+        return jsonify({'error': 'User not found or no key'}), 404
+    prekeys = PreKey.query.filter_by(user_id=user_id, is_used=False).order_by(PreKey.key_id).limit(10).all()
+    return jsonify({
+        'identity_key': user.identity_public_key,
+        'prekeys': [{'key_id': pk.key_id, 'public_key': pk.public_key} for pk in prekeys],
+    })
+
+
+@app.route('/api/e2ee/send', methods=['POST'])
+@login_required
+@limiter.limit("60 per hour")
+def e2ee_send():
+    data = request.get_json(silent=True)
+    if not data or not data.get('chat_id') or not data.get('ciphertext'):
+        return jsonify({'error': 'chat_id, ciphertext required'}), 400
+    chat = db.session.get(Chat, data['chat_id'])
+    if not chat or current_user not in chat.participants:
+        return jsonify({'error': 'Chat not found'}), 404
+    msg = EncryptedMessage(
+        chat_id=chat.id,
+        sender_id=current_user.id,
+        ciphertext=data['ciphertext'],
+        ephemeral_key=data.get('ephemeral_key', ''),
+        salt=data.get('salt', ''),
+        nonce=data.get('nonce', ''),
+    )
+    db.session.add(msg)
+    db.session.commit()
+    # Notify via WebSocket
+    if HAS_SOCKETIO and socketio:
+        socketio.emit('new_encrypted_message', {
+            'chat_id': chat.id,
+            'message_id': msg.id,
+            'sender_id': current_user.id,
+            'created_at': msg.created_at.isoformat(),
+        }, room=f'chat_{chat.id}')
+    return jsonify({'success': True, 'message_id': msg.id})
+
+
+@app.route('/api/e2ee/messages/<int:chat_id>')
+@login_required
+@limiter.limit("60 per hour")
+def e2ee_messages(chat_id):
+    chat = db.session.get(Chat, chat_id)
+    if not chat or current_user not in chat.participants:
+        return jsonify([]), 404
+    since = request.args.get('since')
+    query = EncryptedMessage.query.filter_by(chat_id=chat.id)
+    if since:
+        try:
+            query = query.filter(EncryptedMessage.created_at > datetime.fromisoformat(since))
+        except ValueError:
+            pass
+    messages = query.order_by(EncryptedMessage.created_at).limit(100).all()
+    return jsonify([{
+        'id': m.id,
+        'sender_id': m.sender_id,
+        'ciphertext': m.ciphertext,
+        'ephemeral_key': m.ephemeral_key,
+        'salt': m.salt,
+        'nonce': m.nonce,
+        'created_at': m.created_at.isoformat(),
+        'read_at': m.read_at.isoformat() if m.read_at else None,
+    } for m in messages])
+
+
+# ---------------------------------------------------------------------------
+# WebSocket events (conditional)
+if HAS_SOCKETIO and socketio:
+
+    @socketio.on('join')
+    def handle_join(data):
+        if data.get('chat_id'):
+            join_room(f"chat_{data['chat_id']}")
+
+    @socketio.on('leave')
+    def handle_leave(data):
+        if data.get('chat_id'):
+            leave_room(f"chat_{data['chat_id']}")
+
+    @socketio.on('typing')
+    def handle_typing(data):
+        emit('typing', {
+            'chat_id': data.get('chat_id'),
+            'user_id': current_user.id,
+            'username': current_user.username,
+        }, room=f"chat_{data.get('chat_id')}", include_self=False)
+
+
+# ---------------------------------------------------------------------------
 # Error handlers
-# ------------------------------
+# ---------------------------------------------------------------------------
 @app.errorhandler(404)
 def not_found(e):
     return render_template('error.html', error_code=404, message="Page not found"), 404
@@ -368,6 +686,11 @@ def login():
             return redirect(url_for('login'))
 
         if user and check_password_hash(user.password_hash, password):
+            audit_logger.info('Login password OK', extra={'username': username, 'ip': real_ip})
+            regenerate_session()
+            if user.totp_enabled:
+                session['totp_user_id'] = user.id
+                return redirect(url_for('totp_verify'))
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
             db.session.add(user)
@@ -380,12 +703,13 @@ def login():
             flash('Welcome!', 'success')
             return redirect(url_for('feed'))
         else:
+            audit_logger.info('Login failed', extra={'username': username, 'ip': real_ip})
             if redis_available:
                 try:
                     failed = redis_client.incr(f"failed_attempts:{real_ip}")
-                    redis_client.expire(f"failed_attempts:{real_ip}", 900)  # 15 minutes
+                    redis_client.expire(f"failed_attempts:{real_ip}", 900)
                     if int(failed) >= 5:
-                        logger.warning('Brute-force threshold reached for IP %s', real_ip)
+                        audit_logger.warning('Brute-force threshold reached', extra={'ip': real_ip, 'attempts': failed})
                 except Exception:
                     logger.warning('Failed to track failed attempts for IP %s', real_ip)
             flash('Invalid username or password', 'error')

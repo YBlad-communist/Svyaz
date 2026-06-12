@@ -3,3 +3,13 @@ __pycache__/
 *.pyc
 .vscode/
 .idea/
+secrets/db_password.txt
+secrets/db_replication_password.txt
+secrets/grafana_admin_password.txt
+backups/
+*.egg-info/
+dist/
+build/
+uploads/
+/data/
+instance/

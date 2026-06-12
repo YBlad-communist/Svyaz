@@ -2,30 +2,33 @@ from datetime import datetime, timedelta
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
+import os
+import base64
 from database import db
 import html
+import re
+import nh3
 
+# ============================================================
+# Many-to-Many Tables
+# ============================================================
 chat_participants = db.Table('chat_participants',
     db.Column('chat_id', db.Integer, db.ForeignKey('chats.id'), primary_key=True),
     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True)
 )
-
 idea_roles = db.Table('idea_roles',
     db.Column('idea_id', db.Integer, db.ForeignKey('ideas.id'), primary_key=True),
     db.Column('role_id', db.Integer, db.ForeignKey('roles.id'), primary_key=True)
 )
-
 idea_technologies = db.Table('idea_technologies',
     db.Column('idea_id', db.Integer, db.ForeignKey('ideas.id'), primary_key=True),
     db.Column('technology_id', db.Integer, db.ForeignKey('technologies.id'), primary_key=True)
 )
-
 idea_likes = db.Table('idea_likes',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
     db.Column('idea_id', db.Integer, db.ForeignKey('ideas.id'), primary_key=True),
     db.Column('created_at', db.DateTime, default=datetime.utcnow)
 )
-
 idea_join_requests = db.Table('idea_join_requests',
     db.Column('id', db.Integer, primary_key=True),
     db.Column('idea_id', db.Integer, db.ForeignKey('ideas.id'), nullable=False, index=True),
@@ -34,13 +37,11 @@ idea_join_requests = db.Table('idea_join_requests',
     db.Column('created_at', db.DateTime, default=datetime.utcnow),
     db.UniqueConstraint('idea_id', 'user_id', name='unique_idea_join_request')
 )
-
 user_technologies = db.Table('user_technologies',
     db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
     db.Column('technology_id', db.Integer, db.ForeignKey('technologies.id'), primary_key=True),
     db.Column('skill_level', db.String(20), default='intermediate')
 )
-
 channel_members = db.Table('channel_members',
     db.Column('id', db.Integer, primary_key=True),
     db.Column('channel_id', db.Integer, db.ForeignKey('channels.id'), nullable=False, index=True),
@@ -50,7 +51,14 @@ channel_members = db.Table('channel_members',
     db.Column('joined_at', db.DateTime, default=datetime.utcnow),
     db.UniqueConstraint('channel_id', 'user_id', name='unique_channel_member')
 )
+post_hashtags = db.Table('post_hashtags',
+    db.Column('post_id', db.Integer, db.ForeignKey('posts.id'), primary_key=True),
+    db.Column('hashtag_id', db.Integer, db.ForeignKey('hashtags.id'), primary_key=True)
+)
 
+# ============================================================
+# Constants
+# ============================================================
 DEVELOPER_ROLES = [
     'backend', 'frontend', 'fullstack', 'ml', 'devops', 'designer', 'pm',
     'mobile', 'game-dev', 'data-engineer', 'qa', 'security', 'architect',
@@ -58,8 +66,33 @@ DEVELOPER_ROLES = [
     'animator', 'sound-designer', 'narrative-designer', 'community-manager',
 ]
 SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'expert']
+PROJECT_TYPES = [
+    'game', 'website', 'app', 'library', 'framework',
+    'cli', 'api', 'plugin', 'bot', 'saas',
+    'browser-ext', 'desktop', 'embedded', 'other',
+]
 
+ALLOWED_TAGS = frozenset({
+    'b', 'i', 'u', 'strong', 'em', 'code', 'pre', 'blockquote',
+    'ul', 'ol', 'li', 'a', 'p', 'br', 'hr', 'h1', 'h2', 'h3',
+    'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'img', 'span', 'div', 'del', 'ins', 'sub', 'sup',
+})
+ALLOWED_ATTRIBUTES = {
+    'a': {'href', 'title'},
+    'img': {'src', 'alt', 'title'},
+    'td': {'colspan', 'rowspan'},
+    'th': {'colspan', 'rowspan'},
+    '*': {'class'},
+}
+ALLOWED_URL_SCHEMES = {'http', 'https', 'mailto'}
 
+EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+# ============================================================
+# User Model (with 2FA + E2EE support)
+# ============================================================
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -83,6 +116,19 @@ class User(UserMixin, db.Model):
     developer_role = db.Column(db.String(20), nullable=True)
     verified = db.Column(db.Boolean, default=False)
 
+    # 2FA / TOTP
+    totp_secret = db.Column(db.String(32), nullable=True)
+    totp_enabled = db.Column(db.Boolean, default=False)
+
+    # E2EE: identity keypair (X25519) — base64 encoded
+    identity_public_key = db.Column(db.Text, nullable=True)
+
+    # Backup encryption key for message recovery (encrypted with user's password)
+    encrypted_backup_key = db.Column(db.Text, nullable=True)
+
+    # Sessions for JWT-like token rotation
+    session_version = db.Column(db.Integer, default=1)
+
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade='all, delete-orphan')
     comments = db.relationship('Comment', backref='author', lazy='dynamic', cascade='all, delete-orphan')
     likes = db.relationship('Like', backref='user', lazy='dynamic', cascade='all, delete-orphan')
@@ -96,17 +142,25 @@ class User(UserMixin, db.Model):
     channel_memberships = db.relationship('Channel', secondary=channel_members, lazy='dynamic',
                                           backref=db.backref('members', lazy='dynamic'))
 
+    # E2EE prekeys
+    prekeys = db.relationship('PreKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
+
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
     def is_following(self, user):
         return self.following.filter_by(followed_id=user.id).first() is not None
+
     def get_feed_posts(self):
         followed_users = [u.id for u in self.following.all()] + [self.id]
         return Post.query.filter(Post.user_id.in_(followed_users)).order_by(Post.created_at.desc())
+
     def can_delete_post(self, post):
         return self.id == post.user_id or self.role in ('admin', 'moderator')
+
     def anonymize(self):
         self.username = f"user_{self.id}"
         self.email = f"deleted_{self.id}@deleted.local"
@@ -119,6 +173,10 @@ class User(UserMixin, db.Model):
         self.is_deleted = True
         self.deleted_at = datetime.utcnow()
         self.is_active = False
+        self.totp_secret = None
+        self.totp_enabled = False
+        self.identity_public_key = None
+        self.encrypted_backup_key = None
 
     @property
     def display_name(self):
@@ -128,7 +186,68 @@ class User(UserMixin, db.Model):
     def is_viewable(self):
         return not self.is_deleted
 
+    def regenerate_session_version(self):
+        self.session_version += 1
+        db.session.add(self)
+        db.session.commit()
 
+
+class PreKey(db.Model):
+    """E2EE pre-key bundle for Signal-style protocol."""
+    __tablename__ = 'prekeys'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    key_id = db.Column(db.Integer, nullable=False)
+    public_key = db.Column(db.Text, nullable=False)  # base64 X25519
+    is_used = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ============================================================
+# Encrypted Message Model
+# ============================================================
+class EncryptedMessage(db.Model):
+    """E2EE encrypted message — server stores only ciphertext."""
+    __tablename__ = 'encrypted_messages'
+    id = db.Column(db.Integer, primary_key=True)
+    chat_id = db.Column(db.Integer, db.ForeignKey('chats.id'), nullable=False, index=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    ciphertext = db.Column(db.Text, nullable=False)
+    ephemeral_key = db.Column(db.Text, nullable=False)  # Curve25519 public key
+    salt = db.Column(db.String(64), nullable=False)
+    nonce = db.Column(db.String(64), nullable=False)   # AEAD nonce
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    sender = db.relationship('User', foreign_keys=[sender_id])
+    chat = db.relationship('Chat', backref=db.backref('encrypted_messages', lazy='dynamic'))
+
+    __table_args__ = (
+        db.Index('idx_enc_msg_chat_created', 'chat_id', 'created_at'),
+    )
+
+
+# ============================================================
+# Signal-style Session Store
+# ============================================================
+class SignalSession(db.Model):
+    """Per-participant session state for a chat."""
+    __tablename__ = 'signal_sessions'
+    id = db.Column(db.Integer, primary_key=True)
+    chat_id = db.Column(db.Integer, db.ForeignKey('chats.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    their_identity_key = db.Column(db.Text, nullable=False)
+    our_ephemeral_key = db.Column(db.Text, nullable=False)
+    session_data = db.Column(db.Text, nullable=False)  # Serialized ratchet state
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint('chat_id', 'user_id', name='unique_signal_session'),
+    )
+
+
+# ============================================================
+# Content Models
+# ============================================================
 class Post(db.Model):
     __tablename__ = 'posts'
     id = db.Column(db.Integer, primary_key=True)
@@ -165,11 +284,6 @@ class Hashtag(db.Model):
     posts_count = db.Column(db.Integer, default=0)
     posts = db.relationship('Post', secondary='post_hashtags', lazy='dynamic', backref=db.backref('hashtags', lazy='dynamic'))
 
-post_hashtags = db.Table('post_hashtags',
-    db.Column('post_id', db.Integer, db.ForeignKey('posts.id'), primary_key=True),
-    db.Column('hashtag_id', db.Integer, db.ForeignKey('hashtags.id'), primary_key=True)
-)
-
 
 class Technology(db.Model):
     __tablename__ = 'technologies'
@@ -187,12 +301,6 @@ class Role(db.Model):
     icon = db.Column(db.String(20), nullable=True)
 
 
-PROJECT_TYPES = [
-    'game', 'website', 'app', 'library', 'framework',
-    'cli', 'api', 'plugin', 'bot', 'saas',
-    'browser-ext', 'desktop', 'embedded', 'other',
-]
-
 class Idea(db.Model):
     __tablename__ = 'ideas'
     id = db.Column(db.Integer, primary_key=True)
@@ -207,7 +315,6 @@ class Idea(db.Model):
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     chat_id = db.Column(db.Integer, db.ForeignKey('chats.id', use_alter=True), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
-
     technologies = db.relationship('Technology', secondary=idea_technologies, lazy='select', backref=db.backref('ideas', lazy='dynamic'))
     roles_needed = db.relationship('Role', secondary=idea_roles, lazy='select', backref=db.backref('ideas', lazy='dynamic'))
     likers = db.relationship('User', secondary=idea_likes, lazy='dynamic', backref=db.backref('liked_ideas', lazy='dynamic'))
@@ -245,7 +352,6 @@ class Idea(db.Model):
         return req is not None
 
 
-
 class Like(db.Model):
     __tablename__ = 'likes'
     id = db.Column(db.Integer, primary_key=True)
@@ -264,6 +370,20 @@ class Follow(db.Model):
     __table_args__ = (db.UniqueConstraint('follower_id', 'followed_id', name='unique_follow'),)
 
 
+class Notification(db.Model):
+    __tablename__ = 'notifications'
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(20), nullable=False)
+    content = db.Column(db.String(500), nullable=False)
+    link = db.Column(db.String(500))
+    read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+
+# ============================================================
+# Chat with E2EE support
+# ============================================================
 class Chat(db.Model):
     __tablename__ = 'chats'
     id = db.Column(db.Integer, primary_key=True)
@@ -275,6 +395,7 @@ class Chat(db.Model):
     admin_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     description = db.Column(db.Text, nullable=True)
     idea_id = db.Column(db.Integer, db.ForeignKey('ideas.id', use_alter=True), nullable=True)
+    is_e2ee = db.Column(db.Boolean, default=False)  # Is E2EE enabled for this chat
     messages = db.relationship('Message', backref='chat', lazy='dynamic', cascade='all, delete-orphan')
 
     def get_other_participant(self, user):
@@ -282,21 +403,38 @@ class Chat(db.Model):
         for p in self.participants:
             if p.id != user.id: return p
         return None
+
     def get_display_name(self, user):
         if self.is_group: return self.name or "Group Chat"
         other = self.get_other_participant(user)
         return other.username if other else "Chat"
+
     def get_avatar(self, user):
         if self.is_group: return self.avatar or "https://ui-avatars.com/api/?background=random&name=Group"
         other = self.get_other_participant(user)
         return other.avatar if other else "https://ui-avatars.com/api/?background=random"
+
     @property
-    def last_message(self): return self.messages.order_by(Message.created_at.desc()).first()
-    def unread_count(self, user): return self.messages.filter(Message.sender_id != user.id, Message.read_at.is_(None)).count()
-    def is_admin(self, user): return self.admin_id == user.id
+    def last_message(self):
+        if self.is_e2ee:
+            em = self.encrypted_messages.order_by(EncryptedMessage.created_at.desc()).first()
+            return {'content': '[Encrypted]', 'created_at': em.created_at, 'sender_id': em.sender_id} if em else None
+        return self.messages.order_by(Message.created_at.desc()).first()
+
+    def unread_count(self, user):
+        if self.is_e2ee:
+            return self.encrypted_messages.filter(
+                EncryptedMessage.sender_id != user.id,
+                EncryptedMessage.read_at.is_(None)
+            ).count()
+        return self.messages.filter(Message.sender_id != user.id, Message.read_at.is_(None)).count()
+
+    def is_admin(self, user):
+        return self.admin_id == user.id
 
 
 class Message(db.Model):
+    """Unencrypted message model (used for public / non-E2EE chats)."""
     __tablename__ = 'messages'
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False, default='')
@@ -341,21 +479,9 @@ class Reaction(db.Model):
     __table_args__ = (db.UniqueConstraint('user_id', 'message_id', name='unique_user_message_reaction'),)
 
 
-class Notification(db.Model):
-    __tablename__ = 'notifications'
-    id = db.Column(db.Integer, primary_key=True)
-    type = db.Column(db.String(20), nullable=False)
-    content = db.Column(db.String(500), nullable=False)
-    link = db.Column(db.String(500))
-    read = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-
-
 # ============================================================
-# CHANNELS (Communities)
+# Channels (Communities)
 # ============================================================
-
 class Channel(db.Model):
     __tablename__ = 'channels'
     id = db.Column(db.Integer, primary_key=True)
@@ -368,39 +494,22 @@ class Channel(db.Model):
     avatar_url = db.Column(db.String(500), nullable=True)
     cover_url = db.Column(db.String(500), nullable=True)
     is_verified = db.Column(db.Boolean, default=False)
-
     posts = db.relationship('ChannelPost', backref='channel', lazy='dynamic', cascade='all, delete-orphan')
     invites = db.relationship('ChannelInvite', backref='channel', lazy='dynamic', cascade='all, delete-orphan')
 
     def member_count(self):
-        return db.session.query(channel_members).filter_by(
-            channel_id=self.id, status='active'
-        ).count()
-
+        return db.session.query(channel_members).filter_by(channel_id=self.id, status='active').count()
     def pending_count(self):
-        return db.session.query(channel_members).filter_by(
-            channel_id=self.id, status='pending'
-        ).count()
-
+        return db.session.query(channel_members).filter_by(channel_id=self.id, status='pending').count()
     def get_membership(self, user):
-        if not user or not user.is_authenticated:
-            return None
-        return db.session.query(channel_members).filter_by(
-            channel_id=self.id, user_id=user.id
-        ).first()
-
+        if not user or not user.is_authenticated: return None
+        return db.session.query(channel_members).filter_by(channel_id=self.id, user_id=user.id).first()
     def has_member(self, user):
-        m = self.get_membership(user)
-        return m and m.status == 'active'
-
+        m = self.get_membership(user); return m and m.status == 'active'
     def is_admin(self, user):
-        m = self.get_membership(user)
-        return m and m.role == 'admin'
-
+        m = self.get_membership(user); return m and m.role == 'admin'
     def is_moderator(self, user):
-        m = self.get_membership(user)
-        return m and m.role in ('admin', 'moderator')
-
+        m = self.get_membership(user); return m and m.role in ('admin', 'moderator')
     def can_post(self, user):
         return self.has_member(user)
 
@@ -417,7 +526,6 @@ class ChannelPost(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     likes_count = db.Column(db.Integer, default=0)
     comments_count = db.Column(db.Integer, default=0)
-
     author = db.relationship('User', foreign_keys=[author_id])
 
 
@@ -427,9 +535,7 @@ class ChannelPostLike(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey('channel_posts.id'), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    __table_args__ = (
-        db.UniqueConstraint('post_id', 'user_id', name='unique_channel_post_like'),
-    )
+    __table_args__ = (db.UniqueConstraint('post_id', 'user_id', name='unique_channel_post_like'),)
 
 
 class ChannelPostComment(db.Model):
@@ -439,7 +545,6 @@ class ChannelPostComment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
     author = db.relationship('User', foreign_keys=[user_id])
     post = db.relationship('ChannelPost', backref=db.backref('comments', lazy='dynamic', cascade='all, delete-orphan'))
 
@@ -455,68 +560,35 @@ class ChannelInvite(db.Model):
     expires_at = db.Column(db.DateTime, nullable=True)
     used_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
     inviter = db.relationship('User', foreign_keys=[inviter_id])
 
 
-def generate_api_key(): return secrets.token_urlsafe(32)
-
-
-import html
-import re
-import nh3
-
-# Разрешённые HTML-теги для форматирования (код, списки, ссылки и т.д.)
-ALLOWED_TAGS = frozenset({
-    'b', 'i', 'u', 'strong', 'em', 'code', 'pre', 'blockquote',
-    'ul', 'ol', 'li', 'a', 'p', 'br', 'hr', 'h1', 'h2', 'h3',
-    'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
-    'img', 'span', 'div', 'del', 'ins', 'sub', 'sup',
-})
-# Разрешённые атрибуты по тегам (без 'rel' — nh3/ammonia управляет им автоматически)
-ALLOWED_ATTRIBUTES = {
-    'a': {'href', 'title'},
-    'img': {'src', 'alt', 'title'},
-    'td': {'colspan', 'rowspan'},
-    'th': {'colspan', 'rowspan'},
-    '*': {'class'},
-}
-# Разрешённые URL-схемы
-ALLOWED_URL_SCHEMES = {'http', 'https', 'mailto'}
-
-EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
-PASSWORD_RE = re.compile(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};:\\|,.<>\/?]).{8,128}$')
+# ============================================================
+# Helpers
+# ============================================================
+def generate_api_key():
+    return secrets.token_urlsafe(32)
 
 
 def sanitize_html(text):
-    """Sanitize HTML: allows safe tags, removes scripts and dangerous attributes."""
     if not text:
         return ''
-    return nh3.clean(
-        text,
-        tags=ALLOWED_TAGS,
-        attributes=ALLOWED_ATTRIBUTES,
-        url_schemes=ALLOWED_URL_SCHEMES,
-    )
+    return nh3.clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES, url_schemes=ALLOWED_URL_SCHEMES)
 
 
 def validate_email(email):
-    """Validate email format."""
     if not email or len(email) > 254:
         return False
     return bool(EMAIL_RE.match(email))
 
 
 def validate_username(username):
-    """Validate username format: 3-32 chars, letters/digits/_-."""
     if not username or len(username) < 3 or len(username) > 32:
         return False
     return bool(USERNAME_RE.match(username))
 
 
 def validate_password(password):
-    """Validate password: 8-128 chars, at least 1 uppercase, 1 lowercase, 1 digit, 1 special char."""
     if not password:
         return False, "Password is required"
     if len(password) < 8:
@@ -550,3 +622,79 @@ def validate_url(url):
     except Exception:
         pass
     return ''
+
+
+HASHTAG_RE = re.compile(r'#(\w+)')
+ALLOWED_EXTENSIONS = frozenset({
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp',
+    'mp4', 'webm', 'ogg', 'mov',
+    'pdf', 'doc', 'docx', 'txt', 'csv',
+    'mp3', 'wav', 'flac',
+    'zip', 'gz', 'tar',
+})
+
+
+def extract_and_link_hashtags(content, post):
+    from module import Hashtag
+    hashtags = HASHTAG_RE.findall(content)
+    for name in set(hashtags):
+        name = name.lower()
+        tag = Hashtag.query.filter_by(name=name).first()
+        if not tag:
+            tag = Hashtag(name=name)
+            db.session.add(tag)
+            db.session.flush()
+        post.hashtags.append(tag)
+
+
+def get_file_type(filepath):
+    """Detect file type by magic bytes."""
+    sig_map = {
+        b'\x89PNG\r\n\x1a\n': 'image/png',
+        b'\xff\xd8\xff': 'image/jpeg',
+        b'GIF87a': 'image/gif',
+        b'GIF89a': 'image/gif',
+        b'RIFF': 'image/webp',
+        b'\x00\x00\x00\x00ftyp': 'video/mp4',
+        b'\x1a\x45\xdf\xa3': 'video/webm',
+        b'\x00\x00\x00\x1cftyp': 'video/mov',
+        b'%PDF': 'application/pdf',
+        b'PK\x03\x04': 'application/zip',
+    }
+    with open(filepath, 'rb') as f:
+        header = f.read(16)
+    for sig, mime in sig_map.items():
+        if header.startswith(sig):
+            return mime
+    ext = os.path.splitext(filepath)[1].lower().lstrip('.')
+    ext_map = {
+        'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+        'gif': 'image/gif', 'webp': 'image/webp', 'svg': 'image/svg+xml',
+        'ico': 'image/x-icon', 'bmp': 'image/bmp',
+        'mp4': 'video/mp4', 'webm': 'video/webm', 'mov': 'video/quicktime',
+        'pdf': 'application/pdf',
+        'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'flac': 'audio/flac',
+    }
+    return ext_map.get(ext, 'application/octet-stream')
+
+
+def safe_save_file(file_obj, prefix, allowed_types=None):
+    """Save an uploaded file, returning (url, media_type) or (None, None)."""
+    import uuid
+    from werkzeug.utils import secure_filename
+    from flask import current_app
+    filename = secure_filename(file_obj.filename or 'file')
+    if not filename:
+        return None, None
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    if ext not in ALLOWED_EXTENSIONS:
+        return None, None
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', 'uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    unique_name = f"{prefix}_{uuid.uuid4().hex[:12]}.{ext}"
+    dest = os.path.join(upload_dir, unique_name)
+    file_obj.save(dest)
+    media_type = get_file_type(dest)
+    url = f"/static/uploads/{unique_name}"
+    file_size = os.path.getsize(dest)
+    return url, media_type

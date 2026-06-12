@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FA Verification — Svyaz</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="auth-container">
+        <h1>Two-Factor Authentication</h1>
+        <p>Enter the 6-digit code from your authenticator app</p>
+        <form method="POST">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <input type="text" name="code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required autofocus>
+            </div>
+            <button type="submit" class="btn btn-primary">Verify</button>
+        </form>
+    </div>
+</body>
+</html>
