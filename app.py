@@ -214,29 +214,37 @@ app.config['WTF_CSRF_TIME_LIMIT'] = 3600
 db.init_app(app)
 
 # ---------------------------------------------------------------------------
+# CSP / Nonce
+# ---------------------------------------------------------------------------
+@app.context_processor
+def inject_csp_nonce():
+    return dict(csp_nonce=lambda: getattr(request, 'csp_nonce', ''))
+
+# ---------------------------------------------------------------------------
 # Talisman (HTTPS / Security Headers / CSP)
 # ---------------------------------------------------------------------------
 if not is_testing:
+    _is_prod = os.environ.get('FLASK_ENV') == 'production'
     csp = {
-        'default-src': "'none'",
-        'script-src': "'self' 'unsafe-inline'",
-        'style-src': "'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
+        'default-src': "'self'",
+        'script-src': "'self'",
+        'style-src': ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
         'img-src': "'self' data: https://ui-avatars.com",
-        'connect-src': "'self' wss:",
-        'font-src': "'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+        'connect-src': ["'self'", "ws://localhost:5000"],
+        'font-src': ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
         'form-action': "'self'",
         'frame-ancestors': "'none'",
         'base-uri': "'self'",
     }
     Talisman(app,
-             force_https=os.environ.get('FLASK_ENV') == 'production',
-             strict_transport_security=os.environ.get('FLASK_ENV') == 'production',
+             force_https=_is_prod,
+             strict_transport_security=_is_prod,
              strict_transport_security_max_age=31536000,
              strict_transport_security_include_subdomains=True,
              strict_transport_security_preload=True,
              content_security_policy=csp,
-             content_security_policy_nonce_in=[],
-             session_cookie_secure=os.environ.get('FLASK_ENV') == 'production',
+             content_security_policy_nonce_in=['script-src'],
+             session_cookie_secure=_is_prod,
              referrer_policy='strict-origin-when-cross-origin',
              )
 

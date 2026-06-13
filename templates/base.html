@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}DevConnect{% endblock %}</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" nonce="{{ csp_nonce() }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" nonce="{{ csp_nonce() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" nonce="{{ csp_nonce() }}">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -153,7 +153,7 @@
 
 <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
 async function api(url, method = 'POST', data = null, isJson = false) {
@@ -237,7 +237,7 @@ function validateFileSize(input, maxSize) {
 }
 </script>
 {% if current_user.is_authenticated %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         pollToastNotifications();

@@ -1,13 +1,8 @@
 @echo off
-echo [*] Starting Redis...
-start /MIN /B C:\redis\redis-server.exe --port 6379 --bind 127.0.0.1
-timeout /t 2 /nobreak >nul
-echo [*] Redis started.
 set SECRET_KEY=dev-secret-key-change-in-production-123456
 set DATABASE_URL=sqlite:///social_media.db
 set FLASK_ENV=development
 set REDIS_HOST=127.0.0.1
 set REDIS_PORT=6379
 cd /d C:\Users\User\Desktop\Svyaz.git
-echo [*] Starting Flask app on http://127.0.0.1:5000
 python app.py
