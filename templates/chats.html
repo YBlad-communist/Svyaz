@@ -327,7 +327,7 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
 <!-- Context menu for messages -->
 <div id="msgContextMenu" class="context-menu" style="display:none"></div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 let currentChatId = null;
 let pollInterval = null;
 let lastMsgTimestamp = 0;

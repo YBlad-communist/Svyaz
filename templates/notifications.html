@@ -241,7 +241,7 @@
 
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 function filterNotifs(type, btn) {
     document.querySelectorAll('.notif-filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');

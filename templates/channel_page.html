@@ -165,7 +165,7 @@
     {% endif %}
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 async function likeChannelPost(postId, btn) {
     const res = await fetch(`/channel/{{ channel.name }}/post/${postId}/like`, {
         method: 'POST',

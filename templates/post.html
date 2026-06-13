@@ -81,7 +81,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 async function likePost(postId, btn) {
     const res = await api(`/post/${postId}/like`);
     if (!res) return;

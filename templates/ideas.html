@@ -172,7 +172,7 @@
 </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 async function likeIdea(ideaId, btn) {
     const res = await fetch(`/idea/${ideaId}/like`, {
         method: 'POST',

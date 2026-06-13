@@ -20,7 +20,7 @@
     <a href="{{ url_for('profile_edit') }}" class="btn btn-secondary">Done — I saved them</a>
   </div>
 </div>
-<script>
+<script nonce="{{ csp_nonce() }}">
 function printCodes() {
   var content = document.querySelector('.recovery-codes').innerText;
   var w = window.open('', '', 'width=400,height=400');

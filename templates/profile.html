@@ -161,7 +161,7 @@
 </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 document.querySelectorAll('.post-content').forEach(el => {
     el.innerHTML = el.innerHTML.replace(/#([a-zA-Z0-9_\u0400-\u04FF]+)/g, '<a href="/hashtag/$1" style="color:var(--primary);font-weight:600;text-decoration:none">#$1</a>');
 });

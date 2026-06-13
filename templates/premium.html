@@ -443,7 +443,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 const planPrices = {
     week: 69, month: 199, year: 999, forever: 2999
 };

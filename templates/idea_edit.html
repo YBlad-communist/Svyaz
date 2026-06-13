@@ -81,7 +81,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 function filterTechs(query) {
     const q = query.toLowerCase().trim();
     document.querySelectorAll('.tech-item').forEach(el => {

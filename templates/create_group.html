@@ -32,7 +32,7 @@
 </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
 const selected = new Set();
 
 document.getElementById('memberSearch').addEventListener('input', async function() {
