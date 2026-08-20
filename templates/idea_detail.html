@@ -201,10 +201,10 @@ async function loadGitHubRepos() {
                 <a href="${r.url}" target="_blank" rel="noopener noreferrer"
                    style="display:block;padding:0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:0.5rem;text-decoration:none;transition:border-color 0.15s"
                    onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
-                    <div style="font-weight:600;color:var(--primary)">${r.name}</div>
-                    ${r.description ? `<div style="font-size:0.82rem;color:var(--text3);margin-top:0.25rem">${r.description}</div>` : ''}
+                    <div style="font-weight:600;color:var(--primary)">${escHtml(r.name)}</div>
+                    ${r.description ? `<div style="font-size:0.82rem;color:var(--text3);margin-top:0.25rem">${escHtml(r.description)}</div>` : ''}
                     <div style="display:flex;gap:1rem;margin-top:0.4rem;font-size:0.78rem;color:var(--text3)">
-                        ${r.language ? `<span><i class="fas fa-circle" style="color:var(--primary);font-size:0.5rem"></i> ${r.language}</span>` : ''}
+                        ${r.language ? `<span><i class="fas fa-circle" style="color:var(--primary);font-size:0.5rem"></i> ${escHtml(r.language)}</span>` : ''}
                         <span><i class="fas fa-star"></i> ${r.stars}</span>
                         <span><i class="fas fa-code-branch"></i> ${r.forks}</span>
                     </div>

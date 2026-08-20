@@ -164,9 +164,17 @@ class User(UserMixin, db.Model):
     def can_delete_post(self, post):
         return self.id == post.user_id or self.role in ('admin', 'moderator')
 
+    def is_superadmin(self):
+        return self.role == 'admin' or self.is_admin
+
+    def is_moderator(self):
+        return self.role in ('admin', 'moderator') or self.is_admin
+
+    def warning_count(self):
+        return self.warnings.count()
+
     def anonymize(self):
         self.username = f"user_{self.id}"
-        self.email = f"deleted_{self.id}@deleted.local"
         self.avatar = "https://ui-avatars.com/api/?background=gray&name=Deleted"
         self.bio = ""
         self.location = ""
@@ -257,6 +265,8 @@ class Post(db.Model):
     content = db.Column(db.Text, nullable=False)
     media_url = db.Column(db.String(500), nullable=True)
     media_type = db.Column(db.String(20), nullable=True)
+    media_name = db.Column(db.String(255), nullable=True)
+    media_size = db.Column(db.BigInteger, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
@@ -456,6 +466,8 @@ class Message(db.Model):
     content = db.Column(db.Text, nullable=False, default='')
     media_url = db.Column(db.String(500), nullable=True)
     media_type = db.Column(db.String(20), nullable=True)
+    media_name = db.Column(db.String(255), nullable=True)
+    media_size = db.Column(db.BigInteger, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     read_at = db.Column(db.DateTime, nullable=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
@@ -506,6 +518,7 @@ class Channel(db.Model):
     description = db.Column(db.Text, default='')
     type = db.Column(db.String(20), default='public')
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    post_permission = db.Column(db.String(20), default='admins')  # 'admins' | 'members'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     avatar_url = db.Column(db.String(500), nullable=True)
     cover_url = db.Column(db.String(500), nullable=True)
@@ -527,7 +540,12 @@ class Channel(db.Model):
     def is_moderator(self, user):
         m = self.get_membership(user); return m and m.role in ('admin', 'moderator')
     def can_post(self, user):
-        return self.has_member(user)
+        if not self.has_member(user):
+            return False
+        if self.post_permission == 'members':
+            return True
+        # 'admins' (default): only admins and moderators may post
+        return self.is_moderator(user)
 
 
 class ChannelPost(db.Model):
@@ -538,6 +556,8 @@ class ChannelPost(db.Model):
     content = db.Column(db.Text, nullable=False)
     media_url = db.Column(db.String(500), nullable=True)
     media_type = db.Column(db.String(20), nullable=True)
+    media_name = db.Column(db.String(255), nullable=True)
+    media_size = db.Column(db.BigInteger, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     likes_count = db.Column(db.Integer, default=0)
@@ -577,6 +597,23 @@ class ChannelInvite(db.Model):
     used_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     inviter = db.relationship('User', foreign_keys=[inviter_id])
+
+
+# ============================================================
+# Moderation: warnings
+# ============================================================
+class Warning(db.Model):
+    __tablename__ = 'warnings'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    reason = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('warnings', lazy='dynamic', cascade='all, delete-orphan'))
+    actor = db.relationship('User', foreign_keys=[actor_id])
+
+    def __repr__(self):
+        return f'<Warning user={self.user_id} actor={self.actor_id}>'
 
 
 # ============================================================
@@ -641,13 +678,41 @@ def validate_url(url):
 
 
 HASHTAG_RE = re.compile(r'#(\w+)')
-ALLOWED_EXTENSIONS = frozenset({
-    'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp',
-    'mp4', 'webm', 'ogg', 'mov',
-    'pdf', 'doc', 'docx', 'txt', 'csv',
-    'mp3', 'wav', 'flac',
-    'zip', 'gz', 'tar',
+
+# Programming languages (code files) — any language is welcome
+CODE_EXTENSIONS = frozenset({
+    'py', 'pyw', 'pyi',
+    'java', 'kt', 'kts', 'scala', 'sc',
+    'c', 'h', 'cpp', 'cxx', 'hpp', 'hh', 'hxx', 'cc',
+    'cs', 'fs', 'fsx', 'fsscript',
+    'go', 'rs',
+    'rb', 'pl', 'pm',
+    'css', 'scss', 'sass', 'less', 'vue', 'svelte',
+    'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
+    'swift', 'dart', 'sol', 'lua', 'r', 'sql', 'm', 'mm', 'asm', 's',
+    'clj', 'cljs', 'elixir', 'ex', 'exs', 'erl', 'hrl',
+    'hs', 'lhs', 'ml', 'groovy', 'gradle', 'zig', 'nim', 'cr', 'pas',
+    'd', 'ada', 'ads', 'adb', 'cob', 'cobol', 'f', 'f90', 'f95', 'pro',
+    'diff', 'patch', 'tf', 'tfvars', 'hcl', 'prisma', 'gd', 'gml',
+    'md', 'markdown', 'rst', 'tex', 'xml', 'xsl',
 })
+ARCHIVE_EXTENSIONS = frozenset({
+    'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'tbz', 'tbz2', 'xz',
+    'txz', 'zst', 'lz', 'lz4', 'cpio', 'iso', 'jar', 'war', 'ear', 'apk',
+    'whl', 'deb', 'rpm', 'dmg', 'cab',
+})
+DOC_EXTENSIONS = frozenset({
+    'pdf', 'doc', 'docx', 'txt', 'csv', 'rtf', 'odt', 'odp', 'ods',
+    'xls', 'xlsx', 'ppt', 'pptx',
+})
+AUDIO_EXTENSIONS = frozenset({'mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a'})
+VIDEO_EXTENSIONS = frozenset({'mp4', 'webm', 'mov', 'mkv', 'avi'})
+IMAGE_EXTENSIONS = frozenset({'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'})
+
+ALLOWED_EXTENSIONS = frozenset(
+    CODE_EXTENSIONS | ARCHIVE_EXTENSIONS | DOC_EXTENSIONS |
+    AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+)
 
 
 def extract_and_link_hashtags(content, post):
@@ -663,35 +728,58 @@ def extract_and_link_hashtags(content, post):
         post.hashtags.append(tag)
 
 
-def get_file_type(filepath):
-    """Detect file type by magic bytes."""
-    sig_map = {
-        b'\x89PNG\r\n\x1a\n': 'image/png',
-        b'\xff\xd8\xff': 'image/jpeg',
-        b'GIF87a': 'image/gif',
-        b'GIF89a': 'image/gif',
-        b'RIFF': 'image/webp',
-        b'\x00\x00\x00\x00ftyp': 'video/mp4',
-        b'\x1a\x45\xdf\xa3': 'video/webm',
-        b'\x00\x00\x00\x1cftyp': 'video/mov',
-        b'%PDF': 'application/pdf',
-        b'PK\x03\x04': 'application/zip',
-    }
+def get_file_type(filepath, ext=''):
+    """Detect media category (image/video/audio/document/archive/code) by
+    magic bytes, falling back to the extension. Returns short types that match
+    the templates (image, video, audio, document, archive, code)."""
+    ext = (ext or os.path.splitext(filepath)[1].lower().lstrip('.')).lower()
     with open(filepath, 'rb') as f:
         header = f.read(16)
-    for sig, mime in sig_map.items():
-        if header.startswith(sig):
-            return mime
-    ext = os.path.splitext(filepath)[1].lower().lstrip('.')
-    ext_map = {
-        'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-        'gif': 'image/gif', 'webp': 'image/webp',
-        'ico': 'image/x-icon', 'bmp': 'image/bmp',
-        'mp4': 'video/mp4', 'webm': 'video/webm', 'mov': 'video/quicktime',
-        'pdf': 'application/pdf',
-        'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'flac': 'audio/flac',
-    }
-    return ext_map.get(ext, 'application/octet-stream')
+    # --- magic-byte detection (binary formats) ---
+    if header.startswith(b'\x89PNG\r\n\x1a\n') or header.startswith(b'\xff\xd8\xff') or header.startswith(b'GIF8'):
+        return 'image'
+    if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+        return 'image'
+    if header.startswith(b'\x1a\x45\xdf\xa3'):
+        return 'video'
+    if b'ftyp' in header[:8]:
+        return 'video'
+    if header.startswith(b'%PDF'):
+        return 'document'
+    if header.startswith(b'PK\x03\x04'):
+        return 'archive'
+    if header.startswith(b'\x1f\x8b'):
+        return 'archive'
+    if header.startswith(b'BZh'):
+        return 'archive'
+    if header.startswith(b'\xfd7zXZ\x00'):
+        return 'archive'
+    if header.startswith(b'7z\xbc\xaf\x27\x1c'):
+        return 'archive'
+    if header.startswith(b'Rar!'):
+        return 'archive'
+    if header.startswith(b'ID3') or header[:2] in (b'\xff\xfb', b'\xff\xf3', b'\xff\xf2', b'\xff\xfa'):
+        return 'audio'
+    if header[:4] == b'RIFF' and header[8:12] == b'WAVE':
+        return 'audio'
+    if header.startswith(b'fLaC'):
+        return 'audio'
+    if header.startswith(b'\x00\x00\x00\x18ftypM4A') or header.startswith(b'ftypM4A'):
+        return 'audio'
+    # --- extension-based classification ---
+    if ext in IMAGE_EXTENSIONS:
+        return 'image'
+    if ext in VIDEO_EXTENSIONS:
+        return 'video'
+    if ext in AUDIO_EXTENSIONS:
+        return 'audio'
+    if ext in ARCHIVE_EXTENSIONS:
+        return 'archive'
+    if ext in CODE_EXTENSIONS:
+        return 'code'
+    if ext in DOC_EXTENSIONS:
+        return 'document'
+    return 'document'
 
 
 def _verify_signature(filepath, ext):
@@ -702,7 +790,9 @@ def _verify_signature(filepath, ext):
     """
     ext = ext.lower()
     if ext in ('png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm', 'mov',
-               'pdf', 'mp3', 'wav', 'flac', 'zip', 'docx', 'gz'):
+               'pdf', 'mp3', 'wav', 'flac', 'zip', 'docx', 'gz', 'tgz',
+               'rar', '7z', 'bz2', 'tbz', 'tbz2', 'xz', 'zst', 'jar', 'apk',
+               'aac', 'm4a'):
         try:
             with open(filepath, 'rb') as f:
                 header = f.read(16)
@@ -729,24 +819,37 @@ def _verify_signature(filepath, ext):
             return header.startswith(b'RIFF') and header[8:12] == b'WAVE'
         if ext == 'flac':
             return header.startswith(b'fLaC')
-        if ext in ('zip', 'docx'):
+        if ext in ('aac', 'm4a'):
+            return b'ftyp' in header[:8] or header.startswith(b'\xff\xf1')
+        if ext in ('zip', 'docx', 'jar', 'apk'):
             return header.startswith(b'PK\x03\x04')
-        if ext == 'gz':
+        if ext in ('gz', 'tgz'):
             return header.startswith(b'\x1f\x8b')
+        if ext == 'rar':
+            return header.startswith(b'Rar!')
+        if ext == '7z':
+            return header.startswith(b'7z\xbc\xaf\x27\x1c')
+        if ext in ('bz2', 'tbz', 'tbz2'):
+            return header.startswith(b'BZh')
+        if ext == 'xz':
+            return header.startswith(b'\xfd7zXZ\x00')
+        if ext == 'zst':
+            return header.startswith(b'\x28\xb5\x2f\xfd')
     return True
 
 
 def safe_save_file(file_obj, prefix, allowed_types=None):
-    """Save an uploaded file, returning (url, media_type) or (None, None)."""
+    """Save an uploaded file, returning (url, media_type, filename, size)
+    or (None, None, None, None)."""
     import uuid
     from werkzeug.utils import secure_filename
     from flask import current_app
     filename = secure_filename(file_obj.filename or 'file')
     if not filename:
-        return None, None
+        return None, None, None, None
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     if ext not in ALLOWED_EXTENSIONS:
-        return None, None
+        return None, None, None, None
     # Uploads are served as static assets (with nosniff); store under static/uploads
     # so the /static/uploads/... URLs actually resolve and require no auth.
     static_upload_dir = os.path.join(current_app.static_folder, 'uploads')
@@ -759,7 +862,8 @@ def safe_save_file(file_obj, prefix, allowed_types=None):
             os.remove(dest)
         except OSError:
             pass
-        return None, None
-    media_type = get_file_type(dest)
+        return None, None, None, None
+    media_type = get_file_type(dest, ext)
+    size = os.path.getsize(dest)
     url = f"/static/uploads/{unique_name}"
-    return url, media_type
+    return url, media_type, filename, size

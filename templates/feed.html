@@ -54,6 +54,7 @@
             <div id="mediaPreview" style="display:none;margin-top:0.75rem;border-radius:var(--radius-sm);overflow:hidden;position:relative">
                 <img id="mediaPreviewImg" style="max-height:200px;border-radius:var(--radius-sm);display:none">
                 <video id="mediaPreviewVid" style="max-height:200px;border-radius:var(--radius-sm);display:none" controls></video>
+                <div id="mediaPreviewFile" style="display:none;padding:0.75rem 1rem;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:0.85rem"></div>
                 <button type="button" onclick="clearMedia()" style="position:absolute;top:0.4rem;right:0.4rem;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.6);border:none;color:white;cursor:pointer;font-size:0.8rem">
                     <i class="fas fa-times"></i>
                 </button>
@@ -62,7 +63,7 @@
                 <label class="compose-media-btn" for="mediaInput">
                     <i class="fas fa-image"></i> {{ t('feed.media') }}
                 </label>
-                <input type="file" id="mediaInput" name="media" accept="image/*,video/*" style="display:none" onchange="if(!validateFileSize(this))return;previewMedia(this)">
+                <input type="file" id="mediaInput" name="media" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.html,.css,.json,.yaml,.yml,.sh,.sql,.zip,.tar,.gz,.tgz,.rar,.7z" style="display:none" onchange="if(!validateFileSize(this))return;previewMedia(this)">
                 <span class="compose-counter" id="charCount">0 / 10000</span>
                 <button type="submit" class="btn btn-primary btn-sm" id="postBtn">
                     <i class="fas fa-paper-plane"></i> {{ t('feed.publish') }}
@@ -118,15 +119,7 @@
 
         <div class="post-content" id="postContent-{{ post.id }}">{{ post.content }}</div>
 
-        {% if post.media_url %}
-        {% if post.media_type == 'image' %}
-        <img src="{{ post.media_url }}" class="post-media" alt="Media" onclick="openImage('{{ post.media_url }}')" style="cursor:zoom-in">
-        {% elif post.media_type == 'video' %}
-        <video class="post-video" controls preload="metadata">
-            <source src="{{ post.media_url }}">
-        </video>
-        {% endif %}
-        {% endif %}
+        {% include '_media.html' %}
 
         <div class="post-actions">
             <button class="post-action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}" onclick="likePost({{ post.id }}, this)">
@@ -145,7 +138,7 @@
         <div id="comments-{{ post.id }}" style="display:none">
             {% if post.recent_comments %}
             {% for c in post.recent_comments|reverse %}
-            <div class="comment">
+            <div class="comment" id="comment-{{ c.id }}">
                 <img src="{{ c.author.avatar }}" class="avatar avatar-sm">
                 <div class="comment-content">
                     {% if c.author.is_viewable %}
@@ -156,6 +149,9 @@
                     <div class="comment-text">{{ c.content }}</div>
                     <div class="comment-time">{{ c.created_at.strftime('%d.%m %H:%M') }}</div>
                 </div>
+                {% if c.user_id == current_user.id or current_user.is_moderator() %}
+                <button class="btn btn-ghost btn-icon" style="margin-left:auto;padding:0.15rem 0.35rem;font-size:0.8rem" onclick="deleteComment({{ c.id }})" title="{{ t('feed.delete') }}"><i class="fas fa-trash"></i></button>
+                {% endif %}
             </div>
             {% endfor %}
             {% endif %}
@@ -236,10 +232,12 @@ function previewMedia(input) {
     const wrap = document.getElementById('mediaPreview');
     const img = document.getElementById('mediaPreviewImg');
     const vid = document.getElementById('mediaPreviewVid');
+    const fname = document.getElementById('mediaPreviewFile');
     wrap.style.display = 'block';
     const url = URL.createObjectURL(file);
-    if (file.type.startsWith('image/')) { img.src = url; img.style.display = 'block'; vid.style.display = 'none'; }
-    else { vid.src = url; vid.style.display = 'block'; img.style.display = 'none'; }
+    if (file.type.startsWith('image/')) { img.src = url; img.style.display = 'block'; vid.style.display = 'none'; if (fname) fname.style.display = 'none'; }
+    else if (file.type.startsWith('video/')) { vid.src = url; vid.style.display = 'block'; img.style.display = 'none'; if (fname) fname.style.display = 'none'; }
+    else { img.style.display = 'none'; vid.style.display = 'none'; if (fname) { fname.textContent = '📎 ' + file.name + ' (' + formatFileSize(file.size) + ')'; fname.style.display = 'block'; } }
 }
 function clearMedia() { document.getElementById('mediaInput').value = ''; document.getElementById('mediaPreview').style.display = 'none'; }
 
@@ -277,7 +275,7 @@ async function submitComment(e, postId) {
         const section = document.getElementById(`comments-${postId}`);
         const div = document.createElement('div');
         div.className = 'comment';
-        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${c.username}</a><div class="comment-text">${c.content}</div><div class="comment-time">${I18N['feed.js_just_now']}</div></div>`;
+        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${escHtml(c.username)}</a><div class="comment-text">${escHtml(c.content)}</div><div class="comment-time">${I18N['feed.js_just_now']}</div></div>`;
         section.insertBefore(div, section.lastElementChild);
     }
 }
@@ -285,6 +283,11 @@ async function deletePost(postId) {
     if (!confirm(I18N['feed.js_delete_post'])) return;
     const res = await api(`/post/${postId}/delete`, 'DELETE');
     if (res?.success) { const el = document.getElementById(`post-${postId}`); el.style.opacity = '0'; el.style.transform = 'translateY(-10px)'; el.style.transition = 'all 0.3s'; setTimeout(() => el.remove(), 300); }
+}
+async function deleteComment(commentId) {
+    if (!confirm(I18N['feed.js_delete_post'])) return;
+    const res = await api(`/comment/${commentId}/delete`, 'DELETE');
+    if (res?.success) { const el = document.getElementById(`comment-${commentId}`); if (el) el.remove(); }
 }
 async function editPost(postId) {
     const contentEl = document.getElementById(`postContent-${postId}`);
@@ -305,7 +308,7 @@ async function loadRecs() {
         el.innerHTML = users.slice(0, 5).map(u => `
             <div style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.75rem">
                 <img src="${u.avatar}" class="avatar avatar-sm">
-                <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:0.88rem;color:var(--text)">${u.username}</div></div>
+                <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:0.88rem;color:var(--text)">${escHtml(u.username)}</div></div>
                 <a href="/user/${u.username}" class="btn btn-secondary btn-sm" style="padding:0.25rem 0.65rem;font-size:0.75rem">${I18N['feed.profile']}</a>
             </div>
         `).join('');

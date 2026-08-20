@@ -82,7 +82,7 @@
     </div>
 
     <!-- Actions bar -->
-    {% if is_member %}
+    {% if can_post %}
     <div class="card" style="margin-bottom:1rem">
         <div style="padding:1rem">
             <form method="POST" action="{{ url_for('channel_post_create', channel_name=channel.name) }}" enctype="multipart/form-data">
@@ -91,12 +91,16 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem">
                     <label class="btn btn-secondary btn-sm" style="cursor:pointer">
                         <i class="fas fa-image"></i> {{ t('feed.media') }}
-                        <input type="file" name="media" accept="image/*,video/*" style="display:none" onchange="validateFileSize(this)">
+                        <input type="file" name="media" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.py,.js,.ts,.jsx,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.html,.css,.json,.yaml,.sh,.sql,.zip,.tar,.gz,.tgz,.rar,.7z" style="display:none" onchange="validateFileSize(this)">
                     </label>
                     <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-paper-plane"></i> {{ t('feed.publish') }}</button>
                 </div>
             </form>
         </div>
+    </div>
+    {% elif is_member %}
+    <div style="text-align:center;padding:0.75rem;margin-bottom:1rem;color:var(--text2);font-size:0.85rem;background:rgba(255,255,255,0.03);border:1px dashed var(--border);border-radius:var(--radius-sm)">
+        <i class="fas fa-lock"></i> {{ t('channel.admin_only_posting') }}
     </div>
     {% endif %}
 
@@ -113,7 +117,7 @@
                     <a href="{{ url_for('profile', username=post.author.username) }}" style="font-weight:600;color:var(--text);text-decoration:none">{{ post.author.username }}</a>
                     <div style="font-size:0.78rem;color:var(--text3)">{{ post.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
                 </div>
-                {% if is_admin or post.author_id == current_user.id %}
+                {% if is_admin or post.author_id == current_user.id or current_user.is_moderator() %}
                 <form method="POST" action="{{ url_for('channel_post_delete', channel_name=channel.name, post_id=post.id) }}" style="margin-left:auto">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--text3)" onclick="return confirm(I18N['feed.js_delete_post'])"><i class="fas fa-trash"></i></button>
@@ -121,13 +125,7 @@
                 {% endif %}
             </div>
             <div style="color:var(--text);line-height:1.6;margin-bottom:0.75rem">{{ post.content }}</div>
-            {% if post.media_url %}
-                {% if post.media_type == 'image' %}
-                <img src="{{ post.media_url }}" style="max-width:100%;border-radius:var(--radius-sm);margin-bottom:0.75rem" onclick="openImage(this.src)">
-                {% elif post.media_type == 'video' %}
-                <video controls style="max-width:100%;border-radius:var(--radius-sm);margin-bottom:0.75rem"><source src="{{ post.media_url }}"></video>
-                {% endif %}
-            {% endif %}
+            {% include '_media.html' %}
             <div style="display:flex;gap:1rem;align-items:center">
                 <button class="btn btn-ghost btn-sm {% if post.id in liked_post_ids %}text-primary{% endif %}" onclick="likeChannelPost({{ post.id }}, this)" style="display:inline-flex;align-items:center;gap:0.3rem">
                     <i class="fas fa-heart"></i> <span>{{ post.likes_count }}</span>

@@ -20,9 +20,13 @@
 
                 <div class="form-group">
                     <label class="form-label">{{ t('channel.type') }}</label>
-                    <select name="type" class="form-control">
-                        <option value="public" {% if channel.type == 'public' %}selected{% endif %}>{{ t('channel.public_short') }}</option>
-                        <option value="private" {% if channel.type == 'private' %}selected{% endif %}>{{ t('channel.private_short') }}</option>
+                    <input type="text" name="type" class="form-control" value="public" readonly>
+
+                <div class="form-group">
+                    <label class="form-label">{{ t('channel.post_permission') }}</label>
+                    <select name="post_permission" class="form-control">
+                        <option value="admins" {% if channel.post_permission != 'members' %}selected{% endif %}>{{ t('channel.pp_admins') }}</option>
+                        <option value="members" {% if channel.post_permission == 'members' %}selected{% endif %}>{{ t('channel.pp_members') }}</option>
                     </select>
                 </div>
 
@@ -68,6 +72,16 @@
             <a href="{{ url_for('channel_members_page', channel_name=channel.name) }}" class="btn btn-secondary w-100">
                 <i class="fas fa-users-cog"></i> {{ t('channel.manage_members') }}
             </a>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;border-color:var(--danger,#e3342f)">
+        <div class="card-header"><i class="fas fa-trash" style="color:var(--danger,#e3342f)"></i> {{ t('channel.danger_zone') }}</div>
+        <div style="padding:1rem">
+            <form method="POST" action="{{ url_for('channel_delete', channel_name=channel.name) }}" onsubmit="return confirm('{{ t('channel.delete_confirm') }}')">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger w-100"><i class="fas fa-trash-alt"></i> {{ t('channel.delete_channel') }}</button>
+            </form>
         </div>
     </div>
 </div>

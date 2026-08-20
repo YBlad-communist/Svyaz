@@ -45,7 +45,7 @@ document.getElementById('memberSearch').addEventListener('input', async function
     results.innerHTML = users.filter(u => !selected.has(u.username)).map(u => `
         <div class="search-user-item" onclick="addMember('${u.username}', '${u.avatar}')" style="cursor:pointer;padding:0.6rem 0.75rem">
             <img src="${u.avatar}" class="avatar avatar-sm">
-            <span style="font-weight:600;font-size:0.9rem">${u.username}</span>
+            <span style="font-weight:600;font-size:0.9rem">${escHtml(u.username)}</span>
         </div>
     `).join('') || '<div style="padding:0.75rem;color:var(--text3);font-size:0.88rem;text-align:center">' + I18N['group.not_found'] + '</div>';
 });

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.title') }}{% endblock %}
+{% block content %}
+<div style="max-width:1000px;margin:0 auto">
+    <h1 style="margin:0 0 1rem"><i class="fas fa-shield-halved" style="color:var(--primary)"></i> {{ t('admin.title') }}</h1>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1rem">
+        <div class="card" style="padding:1rem;text-align:center"><div style="font-size:1.5rem;font-weight:700;color:var(--primary)">{{ total_users }}</div><div style="color:var(--text2);font-size:0.8rem">{{ t('admin.stat_users') }}</div></div>
+        <div class="card" style="padding:1rem;text-align:center"><div style="font-size:1.5rem;font-weight:700;color:var(--primary)">{{ total_posts }}</div><div style="color:var(--text2);font-size:0.8rem">{{ t('admin.stat_posts') }}</div></div>
+        <div class="card" style="padding:1rem;text-align:center"><div style="font-size:1.5rem;font-weight:700;color:var(--primary)">{{ total_channels }}</div><div style="color:var(--text2);font-size:0.8rem">{{ t('admin.stat_channels') }}</div></div>
+        <div class="card" style="padding:1rem;text-align:center"><div style="font-size:1.5rem;font-weight:700;color:var(--primary)">{{ total_messages }}</div><div style="color:var(--text2);font-size:0.8rem">{{ t('admin.stat_messages') }}</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> {{ t('admin.manage_users') }}</div>
+        <div style="padding:1rem">
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+                {% for tkey, tlabel, tcount in [('all', t('admin.tab_all'), total_users), ('banned', t('admin.tab_banned'), total_banned), ('deleted', t('admin.tab_deleted'), total_deleted)] %}
+                <a href="{{ url_for('admin_dashboard', tab=tkey, q=q) }}"
+                   class="btn btn-sm {% if tab == tkey %}btn-primary{% else %}btn-secondary{% endif %}"
+                   style="display:inline-flex;align-items:center;gap:0.3rem">
+                    {{ tlabel }} <span style="opacity:0.7">({{ tcount }})</span>
+                </a>
+                {% endfor %}
+            </div>
+            <form method="GET" action="{{ url_for('admin_dashboard') }}" style="display:flex;gap:0.5rem;margin-bottom:1rem">
+                <input type="hidden" name="tab" value="{{ tab }}">
+                <input type="text" name="q" class="form-control" placeholder="{{ t('admin.search_ph') }}" value="{{ q }}">
+                <button class="btn btn-primary btn-sm" type="submit"><i class="fas fa-search"></i></button>
+            </form>
+
+            <div style="overflow-x:auto">
+                <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
+                    <thead>
+                        <tr style="text-align:left;color:var(--text2)">
+                            <th style="padding:0.5rem">{{ t('admin.th_user') }}</th>
+                            <th style="padding:0.5rem">{{ t('admin.th_role') }}</th>
+                            <th style="padding:0.5rem">{{ t('admin.th_warnings') }}</th>
+                            <th style="padding:0.5rem">{{ t('admin.th_status') }}</th>
+                            <th style="padding:0.5rem">{{ t('admin.th_actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr style="border-top:1px solid var(--border)">
+                            <td style="padding:0.5rem">
+                                <div style="display:flex;align-items:center;gap:0.5rem">
+                                    <img src="{{ u.avatar }}" style="width:32px;height:32px;border-radius:50%">
+                                    <div>
+                                        <a href="{{ url_for('profile', username=u.username) }}" style="font-weight:600">{{ u.username }}</a>
+                                        <div style="color:var(--text2);font-size:0.75rem">{{ u.email }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td style="padding:0.5rem">
+                                {% if current_user.is_superadmin() %}
+                                <select class="form-control" style="padding:0.25rem;font-size:0.8rem" onchange="changeRole({{ u.id }}, this.value)">
+                                    {% for r in ['default','betatester','moderator','admin'] %}
+                                    <option value="{{ r }}" {% if u.role == r %}selected{% endif %}>{{ r }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% else %}
+                                <span>{{ u.role }}</span>
+                                {% endif %}
+                            </td>
+                            <td style="padding:0.5rem">
+                                <span style="{% if u.warning_count() > 0 %}color:var(--danger){% else %}color:var(--text2){% endif %}">
+                                    {{ u.warning_count() }}
+                                </span>
+                                {% if u.id != current_user.id and current_user.is_moderator() %}
+                                <button class="btn btn-secondary btn-sm" style="margin-left:0.25rem;padding:0.15rem 0.4rem" onclick="warnUser({{ u.id }})" title="{{ t('admin.warn') }}"><i class="fas fa-exclamation-triangle"></i></button>
+                                {% endif %}
+                            </td>
+                            <td style="padding:0.5rem">
+                                {% if u.is_blocked %}
+                                <span style="color:var(--danger)"><i class="fas fa-ban"></i> {{ t('admin.blocked') }}</span>
+                                {% elif u.is_deleted %}
+                                <span style="color:var(--text2)">{{ t('admin.deleted') }}</span>
+                                {% else %}
+                                <span style="color:#22c55e"><i class="fas fa-circle" style="font-size:0.5rem"></i> {{ t('admin.active') }}</span>
+                                {% endif %}
+                            </td>
+                            <td style="padding:0.5rem;white-space:nowrap">
+                                {% if u.id != current_user.id and current_user.is_moderator() %}
+                                {% if u.is_blocked %}
+                                <button class="btn btn-secondary btn-sm" onclick="postJSON('{{ url_for('admin_unban_user', user_id=u.id) }}')">{{ t('admin.unban') }}</button>
+                                {% else %}
+                                <button class="btn btn-secondary btn-sm" onclick="postJSON('{{ url_for('admin_ban_user', user_id=u.id) }}')">{{ t('admin.ban') }}</button>
+                                {% endif %}
+                                <button class="btn btn-danger btn-sm" onclick="confirmDelete('{{ t('admin.delete_user_confirm') }}', '{{ url_for('admin_delete_user', user_id=u.id) }}')">{{ t('admin.delete') }}</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" style="padding:1rem;text-align:center;color:var(--text2)">{{ t('admin.no_users') }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function postJSON(url, data = {}) {
+    const r = await api(url, 'POST', data, true);
+    if (!r || r.error) { alert(r && r.error ? r.error : '{{ t('admin.err') }}'); return null; }
+    return r;
+}
+function confirmDelete(msg, url) {
+    if (confirm(msg)) postJSON(url).then(r => { if (r) location.reload(); });
+}
+function warnUser(id) {
+    const reason = prompt('{{ t('admin.warn_reason') }}');
+    if (!reason) return;
+    postJSON('/admin/user/' + id + '/warn', { reason }).then(r => { if (r) location.reload(); });
+}
+function changeRole(id, role) {
+    postJSON('/admin/set_role/' + id, { role }).then(r => { if (r) location.reload(); });
+}
+</script>
+{% endblock %}

@@ -27,13 +27,7 @@
             {% endif %}
         </div>
         <div class="post-content">{{ post.content }}</div>
-        {% if post.media_url %}
-        {% if post.media_type == 'image' %}
-        <img src="{{ post.media_url }}" class="post-media" onclick="openImage('{{ post.media_url }}')" style="cursor:zoom-in">
-        {% elif post.media_type == 'video' %}
-        <video class="post-video" controls><source src="{{ post.media_url }}"></video>
-        {% endif %}
-        {% endif %}
+        {% include '_media.html' %}
         <div class="post-actions">
             <button class="post-action-btn {% if post.is_liked_by(current_user) %}liked{% endif %}" onclick="likePost({{ post.id }}, this)">
                 <i class="fas fa-heart"></i> <span class="like-count">{{ post.like_count }}</span>
@@ -59,8 +53,8 @@
 
     <!-- Comments -->
     <div id="commentsContainer">
-    {% for comment in comments %}
-    <div class="comment" style="background:var(--surface);border-radius:var(--radius-sm);margin-bottom:0.5rem;padding:0.85rem 1rem">
+{% for comment in comments %}
+<div class="comment" id="comment-{{ comment.id }}" style="background:var(--surface);border-radius:var(--radius-sm);margin-bottom:0.5rem;padding:0.85rem 1rem">
         {{ user_avatar(comment.author, "sm") }}
         <div class="comment-content">
             {% if comment.author.is_viewable %}
@@ -71,6 +65,9 @@
             <div class="comment-text">{{ comment.content }}</div>
             <div class="comment-time">{{ comment.created_at.strftime('%d.%m.%Y в %H:%M') }}</div>
         </div>
+        {% if comment.user_id == current_user.id or current_user.is_moderator() %}
+        <button class="btn btn-ghost btn-icon" style="margin-left:auto;padding:0.15rem 0.35rem;font-size:0.8rem" onclick="deleteComment({{ comment.id }})" title="{{ t('feed.delete') }}"><i class="fas fa-trash"></i></button>
+        {% endif %}
     </div>
     {% else %}
     <div id="noComments" style="text-align:center;padding:2rem;color:var(--text3)">
@@ -95,6 +92,12 @@ async function deletePost(postId) {
     if (res?.success) window.location.href = '{{ url_for("feed") }}';
 }
 
+async function deleteComment(commentId) {
+    if (!confirm(I18N['feed.js_delete_post'])) return;
+    const res = await api(`/comment/${commentId}/delete`, 'DELETE');
+    if (res?.success) { const el = document.getElementById(`comment-${commentId}`); if (el) el.remove(); }
+}
+
 async function submitComment(e, postId) {
     e.preventDefault();
     const ta = document.getElementById('commentText');
@@ -113,7 +116,7 @@ async function submitComment(e, postId) {
         const div = document.createElement('div');
         div.className = 'comment';
         div.style.cssText = 'background:var(--surface);border-radius:var(--radius-sm);margin-bottom:0.5rem;padding:0.85rem 1rem';
-        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${c.username}</a><div class="comment-text">${c.content}</div><div class="comment-time">${I18N['feed.js_just_now']}</div></div>`;
+        div.innerHTML = `<img src="${c.avatar}" class="avatar avatar-sm"><div class="comment-content"><a href="/user/${c.username}" class="comment-username">${escHtml(c.username)}</a><div class="comment-text">${escHtml(c.content)}</div><div class="comment-time">${I18N['feed.js_just_now']}</div></div>`;
         document.getElementById('commentsContainer').appendChild(div);
     }
 }

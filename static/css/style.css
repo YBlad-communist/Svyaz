@@ -1087,3 +1087,14 @@ textarea.form-control { min-height: 75px; }
     .chat-layout.mobile-show-list #backBtn { display: none !important; }
     .chat-layout.mobile-show-chat #backBtn { display: flex !important; }
 }
+
+/* File cards (code / archive / document uploads) */
+.file-card{display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.8rem;margin:0.5rem 0;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm)}
+.file-card-icon{flex:0 0 auto;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--primary);color:#050510;font-size:1.1rem}
+.file-card-icon .fa-file-archive{color:#050510}
+.file-card-meta{flex:1 1 auto;min-width:0}
+.file-card-name{font-weight:600;font-size:0.85rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card-sub{font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.03em;margin-top:0.15rem}
+.file-card-actions{flex:0 0 auto;display:flex;gap:0.4rem}
+.file-card-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:0.85rem;text-decoration:none;transition:background .15s,color .15s}
+.file-card-btn:hover{background:var(--primary);color:#050510}

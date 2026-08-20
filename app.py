@@ -1,4 +1,5 @@
 import os
+import time
 import secrets
 import logging
 import base64
@@ -64,7 +65,7 @@ from module import (User, Post, Like, Comment, Follow, Message, Notification, Ch
     idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,
     Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite,
     channel_members, validate_email, validate_username,
-    get_file_type, extract_and_link_hashtags, safe_save_file)
+    get_file_type, extract_and_link_hashtags, safe_save_file, Warning)
 
 
 # ============================================================
@@ -191,6 +192,33 @@ except redis.ConnectionError:
 except Exception:
     logger.exception('Redis connection error')
 
+# In-memory fallback for brute-force tracking when Redis is down
+_failed_attempts = {}  # ip -> (count, first_attempt_timestamp)
+
+
+def _memory_failed_attempts_get(ip):
+    entry = _failed_attempts.get(ip)
+    if not entry:
+        return 0
+    count, ts = entry
+    if time.time() - ts > 900:
+        _failed_attempts.pop(ip, None)
+        return 0
+    return count
+
+
+def _memory_failed_attempts_incr(ip):
+    entry = _failed_attempts.get(ip)
+    if entry and time.time() - entry[1] <= 900:
+        _failed_attempts[ip] = (entry[0] + 1, entry[1])
+    else:
+        _failed_attempts[ip] = (1, time.time())
+    return _failed_attempts[ip][0]
+
+
+def _memory_failed_attempts_delete(ip):
+    _failed_attempts.pop(ip, None)
+
 
 def regenerate_session():
     """Mitigate session fixation by discarding attacker-controlled state.
@@ -251,13 +279,14 @@ limiter = Limiter(
 app.config['SECRET_KEY'] = _secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = _resolve_db_uri()
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB uploads (code + archives)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=7)
 app.config['WTF_CSRF_TIME_LIMIT'] = 3600
 
@@ -416,8 +445,8 @@ def before_request():
         current_user.last_activity = datetime.utcnow()
         db.session.add(current_user)
         db.session.flush()
+    real_ip = get_real_ip()
     if redis_available:
-        real_ip = get_real_ip()
         try:
             failed = redis_client.get(f"failed_attempts:{real_ip}")
             if failed and int(failed) >= 5:
@@ -428,6 +457,14 @@ def before_request():
                 return redirect(url_for('login'))
         except Exception:
             pass
+    else:
+        failed = _memory_failed_attempts_get(real_ip)
+        if failed >= 5:
+            logger.warning('Lockout IP %s (%s attempts, memory)', real_ip, failed)
+            if request.is_json:
+                return jsonify({'error': 'Too many attempts. Try again in 15 minutes.'}), 429
+            flash('Too many attempts. Try again later.', 'error')
+            return redirect(url_for('login'))
 
 
 @app.teardown_appcontext
@@ -497,6 +534,7 @@ except ImportError:
 
 @app.route('/totp/verify', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
+@csrf_required
 def totp_verify():
     if not HAS_TOTP:
         return '2FA not available', 503
@@ -590,6 +628,10 @@ def totp_setup():
 @login_required
 @csrf_required
 def totp_disable():
+    password = request.form.get('password', '')
+    if not password or not check_password_hash(current_user.password_hash, password):
+        flash('Password is required to disable 2FA', 'error')
+        return redirect(url_for('profile_edit'))
     current_user.totp_secret = None
     current_user.totp_enabled = False
     db.session.add(current_user)
@@ -879,6 +921,7 @@ def index():
 
 @app.route('/register', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
+@csrf_required
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('feed'))
@@ -918,6 +961,7 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
+@csrf_required
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('feed'))
@@ -951,6 +995,8 @@ def login():
                     redis_client.delete(f"failed_attempts:{real_ip}")
                 except Exception:
                     logger.warning('Failed to clear failed attempts for %s', real_ip)
+            else:
+                _memory_failed_attempts_delete(real_ip)
             flash('Welcome!', 'success')
             return redirect(url_for('feed'))
         else:
@@ -963,6 +1009,10 @@ def login():
                         audit_logger.warning('Brute-force threshold reached', extra={'ip': real_ip, 'attempts': failed})
                 except Exception:
                     logger.warning('Failed to track failed attempts for IP %s', real_ip)
+            else:
+                failed = _memory_failed_attempts_incr(real_ip)
+                if failed >= 5:
+                    audit_logger.warning('Brute-force threshold reached (memory)', extra={'ip': real_ip, 'attempts': failed})
             flash('Invalid username or password', 'error')
     return render_template('login.html')
 
@@ -992,9 +1042,9 @@ def feed():
 @csrf_required
 def create_post():
     content = request.form.get('content', '').strip()
-    media_url, media_type = None, None
+    media_url = media_type = media_name = media_size = None
     if 'media' in request.files:
-        media_url, media_type = safe_save_file(request.files['media'], 'post')
+        media_url, media_type, media_name, media_size = safe_save_file(request.files['media'], 'post')
     if not content and not media_url:
         flash('Post cannot be empty', 'error')
         return redirect(request.referrer or url_for('feed'))
@@ -1002,7 +1052,8 @@ def create_post():
         flash('Post is too long', 'error')
         return redirect(request.referrer or url_for('feed'))
     clean = sanitize_html(content)
-    post = Post(content=clean, media_url=media_url, media_type=media_type, user_id=current_user.id)
+    post = Post(content=clean, media_url=media_url, media_type=media_type,
+                media_name=media_name, media_size=media_size, user_id=current_user.id)
     db.session.add(post)
     db.session.flush()
     extract_and_link_hashtags(clean, post)
@@ -1086,6 +1137,19 @@ def add_comment(post_id):
         }
     })
 
+@app.route('/comment/<int:comment_id>/delete', methods=['DELETE'])
+@login_required
+@csrf_required
+def delete_comment(comment_id):
+    comment = db.session.get(Comment, comment_id)
+    if not comment:
+        return jsonify({'error': 'Comment not found'}), 404
+    if comment.user_id != current_user.id and not current_user.is_moderator():
+        return jsonify({'error': 'No permission'}), 403
+    db.session.delete(comment)
+    db.session.commit()
+    return jsonify({'success': True})
+
 @app.route('/post/<int:post_id>/edit', methods=['PUT'])
 @login_required
 @limiter.limit("30 per hour")
@@ -1128,10 +1192,12 @@ def delete_post(post_id):
 @app.route('/user/<username>')
 @login_required
 def profile(username):
-    user = User.query.filter_by(username=username, is_deleted=False).first_or_404()
+    user = User.query.filter_by(username=username).first_or_404()
     page = request.args.get('page', 1, int)
     per_page = 20
     posts = Post.query.filter_by(user_id=user.id).options(joinedload(Post.author)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    if user.is_deleted:
+        return render_template('profile_deleted.html', profile_user=user, posts=posts)
     is_following = Follow.query.filter_by(follower_id=current_user.id, followed_id=user.id).first() is not None
     return render_template('profile.html', profile_user=user, posts=posts, is_following=is_following)
 
@@ -1147,7 +1213,7 @@ def upload_avatar():
     if not file or file.filename == '':
         flash('No file selected', 'error')
         return redirect(url_for('profile', username=current_user.username))
-    url, _ = safe_save_file(file, f"user_{current_user.id}")
+    url, _, _, _ = safe_save_file(file, f"user_{current_user.id}")
     if url:
         current_user.avatar = url
         db.session.commit()
@@ -1669,9 +1735,7 @@ def channel_create():
         name = request.form.get('name', '').strip().lower()
         title = request.form.get('title', '').strip()
         description = request.form.get('description', '').strip()
-        channel_type = request.form.get('type', 'public')
-        if channel_type not in ('public', 'private'):
-            channel_type = 'public'
+        channel_type = 'public'
         if not name or not title:
             flash('Name and handle are required', 'error')
             return render_template('channel_create.html')
@@ -1732,6 +1796,7 @@ def channel_page(channel_name):
     return render_template('channel_page.html', channel=channel, posts=posts,
                            membership=membership, is_member=is_member,
                            is_admin=is_admin, is_mod=is_mod,
+                           can_post=channel.can_post(current_user),
                            pending_requests=pending_requests,
                            liked_post_ids=liked_post_ids)
 
@@ -1796,12 +1861,13 @@ def channel_post_create(channel_name):
     if len(content) > 10000:
         flash('Post is too long', 'error')
         return redirect(url_for('channel_page', channel_name=channel_name))
-    media_url, media_type = None, None
+    media_url = media_type = media_name = media_size = None
     if 'media' in request.files:
-        media_url, media_type = safe_save_file(request.files['media'], 'ch_post')
+        media_url, media_type, media_name, media_size = safe_save_file(request.files['media'], 'ch_post')
     post = ChannelPost(
         channel_id=channel.id, author_id=current_user.id,
-        content=sanitize_html(content), media_url=media_url, media_type=media_type
+        content=sanitize_html(content), media_url=media_url, media_type=media_type,
+        media_name=media_name, media_size=media_size
     )
     db.session.add(post)
     db.session.commit()
@@ -1888,7 +1954,7 @@ def channel_post_delete(channel_name, post_id):
         abort(404)
     if not _check_channel_access(channel):
         return jsonify({'error': 'No permission'}), 403
-    if post.author_id != current_user.id and not channel.is_admin(current_user):
+    if post.author_id != current_user.id and not channel.is_admin(current_user) and not current_user.is_moderator():
         return jsonify({'error': 'No permission'}), 403
     db.session.delete(post)
     db.session.commit()
@@ -1905,24 +1971,48 @@ def channel_edit(channel_name):
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
         description = request.form.get('description', '').strip()
-        channel_type = request.form.get('type', 'public')
-        if channel_type not in ('public', 'private'):
-            channel_type = 'public'
         channel.title = sanitize_html(title)
         channel.description = sanitize_html(description)
-        channel.type = channel_type
+        channel.type = 'public'
+        perm = request.form.get('post_permission', 'admins')
+        channel.post_permission = perm if perm in ('admins', 'members') else 'admins'
         if 'avatar' in request.files:
-            url, _ = safe_save_file(request.files['avatar'], f"ch_av_{channel.id}")
+            url, _, _, _ = safe_save_file(request.files['avatar'], f"ch_av_{channel.id}")
             if url:
                 channel.avatar_url = url
         if 'cover' in request.files:
-            url, _ = safe_save_file(request.files['cover'], f"ch_cv_{channel.id}")
+            url, _, _, _ = safe_save_file(request.files['cover'], f"ch_cv_{channel.id}")
             if url:
                 channel.cover_url = url
         db.session.commit()
         flash('Channel updated', 'success')
         return redirect(url_for('channel_page', channel_name=channel_name))
     return render_template('channel_edit.html', channel=channel)
+
+@app.route('/channel/<channel_name>/delete', methods=['POST'])
+@login_required
+@csrf_required
+def channel_delete(channel_name):
+    channel = Channel.query.filter_by(name=channel_name).first_or_404()
+    if not channel.is_admin(current_user):
+        abort(403)
+    ChannelPostLike.query.filter(
+        ChannelPostLike.post_id.in_(
+            db.session.query(ChannelPost.id).filter_by(channel_id=channel.id)
+        )
+    ).delete(synchronize_session=False)
+    ChannelPostComment.query.filter(
+        ChannelPostComment.post_id.in_(
+            db.session.query(ChannelPost.id).filter_by(channel_id=channel.id)
+        )
+    ).delete(synchronize_session=False)
+    ChannelPost.query.filter_by(channel_id=channel.id).delete(synchronize_session=False)
+    db.session.execute(channel_members.delete().where(channel_members.c.channel_id == channel.id))
+    ChannelInvite.query.filter_by(channel_id=channel.id).delete(synchronize_session=False)
+    db.session.delete(channel)
+    db.session.commit()
+    flash('Channel deleted', 'success')
+    return redirect(url_for('channels_list'))
 
 @app.route('/channel/<channel_name>/members')
 @login_required
@@ -2110,7 +2200,7 @@ def create_group():
             if user and user != current_user:
                 chat.participants.append(user)
         if 'avatar' in request.files:
-            url, _ = safe_save_file(request.files['avatar'], f"group_{secrets.token_urlsafe(8)}")
+            url, _, _, _ = safe_save_file(request.files['avatar'], f"group_{secrets.token_urlsafe(8)}")
             if url:
                 chat.avatar = url
         db.session.commit()
@@ -2212,7 +2302,9 @@ def get_messages(chat_id):
             'id': msg.id, 'sender_id': msg.sender_id, 'sender_username': msg.sender.username,
             'sender_avatar': msg.sender.avatar,
             'content': msg.content, 'media_url': msg.media_url,
-            'media_type': msg.media_type, 'created_at': msg.created_at.strftime('%H:%M'),
+            'media_type': msg.media_type,
+            'media_name': msg.media_name, 'media_size': msg.media_size,
+            'created_at': msg.created_at.strftime('%H:%M'),
             'created_at_full': msg.created_at.timestamp(),
             'is_mine': msg.sender_id == current_user.id,
             'is_edited': msg.is_edited, 'edited_at': msg.edited_at.isoformat() if msg.edited_at else None,
@@ -2232,13 +2324,14 @@ def send_message(chat_id):
     if current_user not in chat.participants:
         return jsonify({'error': 'Access denied'}), 403
     content = request.form.get('content', '').strip()
-    media_url, media_type = None, None
+    media_url = media_type = media_name = media_size = None
     if 'media' in request.files:
-        media_url, media_type = safe_save_file(request.files['media'], f"msg_{secrets.token_urlsafe(8)}")
+        media_url, media_type, media_name, media_size = safe_save_file(request.files['media'], f"msg_{secrets.token_urlsafe(8)}")
     reply_to_id = request.form.get('reply_to', type=int)
     if not content and not media_url:
         return jsonify({'error': 'Empty message'}), 400
     msg = Message(content=sanitize_html(content), media_url=media_url, media_type=media_type,
+                  media_name=media_name, media_size=media_size,
                   sender_id=current_user.id, chat_id=chat.id)
     if reply_to_id:
         reply_msg = db.session.get(Message, reply_to_id)
@@ -2258,6 +2351,7 @@ def send_message(chat_id):
         'id': msg.id, 'sender_id': msg.sender_id, 'sender_username': current_user.username,
         'sender_avatar': current_user.avatar, 'content': sanitize_html(content),
         'media_url': media_url, 'media_type': media_type,
+        'media_name': media_name, 'media_size': media_size,
         'created_at': msg.created_at.strftime('%H:%M'),
         'created_at_full': msg.created_at.timestamp(),
         'is_mine': True, 'reply_to_id': msg.reply_to_id
@@ -2297,7 +2391,7 @@ def delete_message(chat_id, message_id):
     chat = db.session.get(Chat, chat_id)
     if not chat:
         return jsonify({'error': 'Chat not found'}), 404
-    if msg.sender_id != current_user.id and not (chat.is_group and chat.admin_id == current_user.id):
+    if msg.sender_id != current_user.id and not (chat.is_group and chat.admin_id == current_user.id) and not current_user.is_moderator():
         return jsonify({'error': 'No permission'}), 403
     db.session.delete(msg)
     db.session.commit()
@@ -2500,8 +2594,201 @@ def github_repos(username):
         return jsonify({'error': 'Failed to fetch repos'}), 502
 
 # ------------------------------
-# Admin
+# Admin & moderation
 # ------------------------------
+def _mod_required():
+    """Admins and moderators only."""
+    if not current_user.is_moderator():
+        abort(403)
+
+
+@app.route('/admin')
+@login_required
+def admin_dashboard():
+    _mod_required()
+    q = request.args.get('q', '').strip()
+    tab = request.args.get('tab', 'all').strip()
+    if tab not in ('all', 'banned', 'deleted'):
+        tab = 'all'
+    query = User.query
+    if tab == 'banned':
+        query = query.filter_by(is_blocked=True)
+    elif tab == 'deleted':
+        query = query.filter_by(is_deleted=True)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(db.or_(User.username.ilike(like), User.email.ilike(like)))
+    users = query.order_by(User.created_at.desc()).limit(200).all()
+    total_users = User.query.count()
+    total_posts = Post.query.count()
+    total_channels = Channel.query.count()
+    total_messages = Message.query.count()
+    total_banned = User.query.filter_by(is_blocked=True).count()
+    total_deleted = User.query.filter_by(is_deleted=True).count()
+    return render_template('admin.html', users=users, q=q, tab=tab,
+                           total_users=total_users, total_posts=total_posts,
+                           total_channels=total_channels, total_messages=total_messages,
+                           total_banned=total_banned, total_deleted=total_deleted)
+
+
+@app.route('/admin/user/<int:user_id>/ban', methods=['POST'])
+@login_required
+@csrf_required
+def admin_ban_user(user_id):
+    _mod_required()
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot ban yourself'}), 400
+    if user.is_superadmin() and not current_user.is_superadmin():
+        return jsonify({'error': 'Cannot ban an admin'}), 403
+    user.is_blocked = True
+    user.session_version += 1
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/user/<int:user_id>/unban', methods=['POST'])
+@login_required
+@csrf_required
+def admin_unban_user(user_id):
+    _mod_required()
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    user.is_blocked = False
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/user/<int:user_id>/warn', methods=['POST'])
+@login_required
+@csrf_required
+def admin_warn_user(user_id):
+    _mod_required()
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot warn yourself'}), 400
+    data = request.get_json(silent=True) or {}
+    reason = (data.get('reason') or '').strip()
+    if not reason:
+        return jsonify({'error': 'Reason is required'}), 400
+    w = Warning(user_id=user.id, actor_id=current_user.id, reason=sanitize_html(reason)[:2000])
+    db.session.add(w)
+    db.session.commit()
+    return jsonify({'success': True, 'warning_count': user.warning_count()})
+
+
+@app.route('/admin/user/<int:user_id>/delete', methods=['POST'])
+@login_required
+@csrf_required
+def admin_delete_user(user_id):
+    _mod_required()
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot delete yourself'}), 400
+    if user.is_superadmin() and not current_user.is_superadmin():
+        return jsonify({'error': 'Cannot delete an admin'}), 403
+    Post.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+    Comment.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+    Like.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+    Message.query.filter_by(sender_id=user.id).delete(synchronize_session=False)
+    Notification.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+    Follow.query.filter(db.or_(Follow.follower_id == user.id, Follow.followed_id == user.id)).delete(synchronize_session=False)
+    db.session.execute(channel_members.delete().where(channel_members.c.user_id == user.id))
+    Warning.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+    user.anonymize()
+    user.is_deleted = True
+    user.is_active = False
+    user.is_blocked = True
+    user.session_version += 1
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/delete/post/<int:post_id>', methods=['POST'])
+@login_required
+@csrf_required
+def admin_delete_post(post_id):
+    _mod_required()
+    post = db.session.get(Post, post_id)
+    if not post:
+        return jsonify({'error': 'Post not found'}), 404
+    Like.query.filter_by(post_id=post.id).delete(synchronize_session=False)
+    Comment.query.filter_by(post_id=post.id).delete(synchronize_session=False)
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/delete/comment/<int:comment_id>', methods=['POST'])
+@login_required
+@csrf_required
+def admin_delete_comment(comment_id):
+    _mod_required()
+    comment = db.session.get(Comment, comment_id)
+    if not comment:
+        return jsonify({'error': 'Comment not found'}), 404
+    db.session.delete(comment)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/delete/message/<int:message_id>', methods=['POST'])
+@login_required
+@csrf_required
+def admin_delete_message(message_id):
+    _mod_required()
+    msg = db.session.get(Message, message_id)
+    if not msg:
+        return jsonify({'error': 'Message not found'}), 404
+    db.session.delete(msg)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/delete/channel/<int:channel_id>', methods=['POST'])
+@login_required
+@csrf_required
+def admin_delete_channel(channel_id):
+    _mod_required()
+    channel = db.session.get(Channel, channel_id)
+    if not channel:
+        return jsonify({'error': 'Channel not found'}), 404
+    ChannelPostLike.query.filter(
+        ChannelPostLike.post_id.in_(db.session.query(ChannelPost.id).filter_by(channel_id=channel.id))
+    ).delete(synchronize_session=False)
+    ChannelPostComment.query.filter(
+        ChannelPostComment.post_id.in_(db.session.query(ChannelPost.id).filter_by(channel_id=channel.id))
+    ).delete(synchronize_session=False)
+    ChannelPost.query.filter_by(channel_id=channel.id).delete(synchronize_session=False)
+    db.session.execute(channel_members.delete().where(channel_members.c.channel_id == channel.id))
+    ChannelInvite.query.filter_by(channel_id=channel.id).delete(synchronize_session=False)
+    db.session.delete(channel)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/admin/delete/channel_post/<int:post_id>', methods=['POST'])
+@login_required
+@csrf_required
+def admin_delete_channel_post(post_id):
+    _mod_required()
+    post = db.session.get(ChannelPost, post_id)
+    if not post:
+        return jsonify({'error': 'Channel post not found'}), 404
+    ChannelPostLike.query.filter_by(post_id=post.id).delete(synchronize_session=False)
+    ChannelPostComment.query.filter_by(post_id=post.id).delete(synchronize_session=False)
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
 @app.route('/admin/block_user/<int:user_id>', methods=['POST'])
 @login_required
 @csrf_required
@@ -2521,7 +2808,7 @@ def block_user(user_id):
 @login_required
 @csrf_required
 def set_user_role(user_id):
-    if current_user.role != 'admin':
+    if not current_user.is_superadmin():
         return jsonify({'error': 'No permission'}), 403
     data = request.get_json(silent=True)
     if not data:
@@ -2561,6 +2848,31 @@ def download_file(folder, filename):
     if not os.path.abspath(file_path).startswith(upload_dir):
         abort(403)
     return send_from_directory(folder_path, clean_filename)
+
+
+@app.route('/api/file/preview')
+@login_required
+@limiter.limit("60 per minute")
+def file_preview():
+    """Return the beginning of an uploaded code/text file as plain text."""
+    from flask import Response
+    name = request.args.get('p', '')
+    uploads_dir = os.path.abspath(os.path.join(app.static_folder, 'uploads'))
+    safe_name = os.path.basename(name)
+    full = os.path.abspath(os.path.join(uploads_dir, safe_name))
+    if not full.startswith(uploads_dir) or not os.path.isfile(full):
+        return Response('', status=404)
+    # Preview only the first ~50KB so huge files are cheap to view
+    try:
+        with open(full, 'rb') as f:
+            data = f.read(51200)
+    except OSError:
+        return Response('', status=500)
+    try:
+        text = data.decode('utf-8', errors='replace')
+    except Exception:
+        text = repr(data)
+    return Response(text, mimetype='text/plain; charset=utf-8')
 
 # ------------------------------
 # Hashtags
@@ -2754,15 +3066,33 @@ def init_db():
                 conn.execute(text("ALTER TABLE users ADD COLUMN deleted_at DATETIME"))
                 conn.commit()
                 logger.info('Added deleted_at column to users table')
+        # Add media metadata columns (code/archive uploads) to content tables
+        for table in ('posts', 'messages', 'channel_posts'):
+            cols = {col['name'] for col in inspector.get_columns(table)}
+            with db.engine.connect() as conn:
+                if 'media_name' not in cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN media_name VARCHAR(255)"))
+                    conn.commit()
+                    logger.info('Added media_name column to %s', table)
+                if 'media_size' not in cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN media_size BIGINT"))
+                    conn.commit()
+                    logger.info('Added media_size column to %s', table)
+        # Add channel post-permission setting
+        ch_cols = {col['name'] for col in inspector.get_columns('channels')}
+        if 'post_permission' not in ch_cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE channels ADD COLUMN post_permission VARCHAR(20) DEFAULT 'admins'"))
+                conn.commit()
+                logger.info('Added post_permission column to channels')
+        # Ensure any new models (warnings) exist on existing databases
+        db.create_all()
+        logger.info('Ensured new tables exist (db.create_all)')
 
 if __name__ == '__main__':
     with app.app_context():
         init_db()
         seed_default_data()
-        admin = User.query.filter_by(username='admin').first()
-        if admin and admin.role == 'default':
-            admin.role = 'admin'
-            db.session.commit()
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 
 # Auto-initialization for WSGI servers (gunicorn etc.)

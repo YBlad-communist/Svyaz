@@ -1,4 +1,4 @@
-"""
+﻿"""
 Тесты для приложения Svyaz.
 
 Запуск:
@@ -130,6 +130,12 @@ def login(client, username, password):
     return client.post('/login', data={
         'username': username, 'password': password, '_csrf_token': CSRF_TOKEN,
     }, follow_redirects=True)
+
+
+def logout(client):
+    client.get('/login')
+    setup_csrf(client)
+    return client.post('/logout', data={'_csrf_token': CSRF_TOKEN}, follow_redirects=True)
 
 
 def csrf_post(client, url, data, follow_redirects=False, headers=None, content_type=None):
@@ -700,6 +706,89 @@ class TestChannels:
                        {'content': 'Intruder'}, follow_redirects=True)
         assert rv.status_code == 200  # redirected with flash
 
+    def test_admin_can_post(self, client, user1, user2):
+        ch = Channel(name='adminch', title='Admin', type='public', owner_id=user1.id)
+        db.session.add(ch)
+        db.session.flush()
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user1.id,
+            role='admin', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+
+        login(client, 'alice', 'password123')
+        rv = csrf_post(client, f'/channel/{ch.name}/post',
+                       {'content': 'Hello'}, follow_redirects=True)
+        assert rv.status_code == 200
+        assert ChannelPost.query.filter_by(channel_id=ch.id, content='Hello').first() is not None
+
+    def test_member_cannot_post_admin_only(self, client, user1, user2):
+        ch = Channel(name='adminonly', title='AdminOnly', type='public',
+                     owner_id=user1.id, post_permission='admins')
+        db.session.add(ch)
+        db.session.flush()
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user1.id,
+            role='admin', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user2.id,
+            role='member', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+
+        login(client, 'bob', 'password123')
+        rv = csrf_post(client, f'/channel/{ch.name}/post',
+                       {'content': 'Nope'}, follow_redirects=True)
+        assert rv.status_code == 200  # redirected with flash
+        assert ChannelPost.query.filter_by(channel_id=ch.id, content='Nope').first() is None
+
+    def test_member_can_post_when_allowed(self, client, user1, user2):
+        ch = Channel(name='opench', title='Open', type='public',
+                     owner_id=user1.id, post_permission='members')
+        db.session.add(ch)
+        db.session.flush()
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user1.id,
+            role='admin', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user2.id,
+            role='member', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+
+        login(client, 'bob', 'password123')
+        rv = csrf_post(client, f'/channel/{ch.name}/post',
+                       {'content': 'Allowed'}, follow_redirects=True)
+        assert rv.status_code == 200
+        assert ChannelPost.query.filter_by(channel_id=ch.id, content='Allowed').first() is not None
+
+    def test_delete_channel_admin_only(self, client, user1, user2):
+        ch = Channel(name='delch', title='Delete', type='public', owner_id=user1.id)
+        db.session.add(ch)
+        db.session.flush()
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user1.id,
+            role='admin', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.execute(channel_members.insert().values(
+            channel_id=ch.id, user_id=user2.id,
+            role='member', status='active', joined_at=datetime.utcnow()
+        ))
+        db.session.commit()
+
+        login(client, 'bob', 'password123')
+        rv = csrf_post(client, f'/channel/{ch.name}/delete', {}, follow_redirects=True)
+        assert Channel.query.filter_by(id=ch.id).first() is not None  # member cannot delete
+
+        logout(client)
+        login(client, 'alice', 'password123')
+        rv = csrf_post(client, f'/channel/{ch.name}/delete', {}, follow_redirects=True)
+        assert rv.status_code == 200
+        assert Channel.query.filter_by(id=ch.id).first() is None
+        assert db.session.query(channel_members).filter_by(channel_id=ch.id).count() == 0
+
     def test_join_public(self, client, user1, user2):
         ch = Channel(name='joinme', title='Join', type='public', owner_id=user1.id)
         db.session.add(ch)
@@ -854,7 +943,7 @@ class TestFileUpload:
             f.flush()
             mime = get_file_type(f.name)
         os.unlink(f.name)
-        assert mime == 'image/png'
+        assert mime == 'image'
 
     def test_detect_jpeg(self, client):
         from app import get_file_type
@@ -864,7 +953,59 @@ class TestFileUpload:
             f.flush()
             mime = get_file_type(f.name)
         os.unlink(f.name)
-        assert mime == 'image/jpeg'
+        assert mime == 'image'
+
+    def test_upload_code_post(self, client, user1):
+        import io
+        from app import Post
+        login(client, 'alice', 'password123')
+        code = b'def hello():\n    return "svyaz"\n'
+        rv = csrf_post(client, '/post/create', {
+            'content': 'sharing code',
+            'media': (io.BytesIO(code), 'hello.py'),
+        }, follow_redirects=True, content_type='multipart/form-data')
+        assert rv.status_code == 200
+        p = Post.query.order_by(Post.id.desc()).first()
+        assert p is not None
+        assert p.media_type == 'code'
+        assert p.media_name == 'hello.py'
+        assert p.media_size == len(code)
+        assert p.media_url.endswith('.py')
+        assert 'file-card' in rv.get_data(as_text=True)
+
+    def test_upload_archive_post(self, client, user1):
+        import io, zipfile
+        from app import Post
+        login(client, 'alice', 'password123')
+        zio = io.BytesIO()
+        with zipfile.ZipFile(zio, 'w') as z:
+            z.writestr('main.py', 'print(1)')
+        zio.seek(0)
+        rv = csrf_post(client, '/post/create', {
+            'content': 'archive',
+            'media': (zio, 'project.zip'),
+        }, follow_redirects=True, content_type='multipart/form-data')
+        assert rv.status_code == 200
+        p = Post.query.order_by(Post.id.desc()).first()
+        assert p is not None
+        assert p.media_type == 'archive'
+        assert p.media_name == 'project.zip'
+        assert 'file-card' in rv.get_data(as_text=True)
+
+    def test_reject_disallowed_extension(self, client, user1):
+        import io
+        from app import Post
+        login(client, 'alice', 'password123')
+        rv = csrf_post(client, '/post/create', {
+            'content': 'bad',
+            'media': (io.BytesIO(b'MZ...'), 'evil.exe'),
+        }, follow_redirects=True, content_type='multipart/form-data')
+        # .exe is not allowed -> no media saved, post still created with content only
+        assert rv.status_code == 200
+        p = Post.query.order_by(Post.id.desc()).first()
+        assert p.media_url is None
+        assert p.media_type is None
+        assert p.content == 'bad'
 
 
 # ============================================================
@@ -955,3 +1096,79 @@ class TestChats:
         login(client, 'bob', 'password123')
         rv = csrf_post(client, f'/api/chat/{chat.id}/delete', {})
         assert rv.status_code == 403
+
+# ============================================================
+# Admin / moderation
+# ============================================================
+class TestAdminModeration:
+    def test_admin_dashboard_access(self, client, admin_user, user1):
+        login(client, 'alice', 'password123')
+        rv = client.get('/admin')
+        assert rv.status_code == 403
+        logout(client)
+        login(client, 'admin', 'adminpass123')
+        rv = client.get('/admin')
+        assert rv.status_code == 200
+
+    def test_admin_ban_unban(self, client, admin_user, user1):
+        login(client, 'admin', 'adminpass123')
+        rv = csrf_post(client, f'/admin/user/{user1.id}/ban', {})
+        assert rv.status_code == 200
+        assert db.session.get(User, user1.id).is_blocked is True
+        rv = csrf_post(client, f'/admin/user/{user1.id}/unban', {})
+        assert rv.status_code == 200
+        assert db.session.get(User, user1.id).is_blocked is False
+
+    def test_admin_warn_user(self, client, admin_user, user1):
+        login(client, 'admin', 'adminpass123')
+        rv = csrf_json(client, f'/admin/user/{user1.id}/warn', {'reason': 'Spam'})
+        assert rv.status_code == 200
+        data = rv.get_json()
+        assert data['success'] is True
+        assert db.session.get(User, user1.id).warning_count() == 1
+
+    def test_admin_set_role(self, client, admin_user, user1):
+        login(client, 'admin', 'adminpass123')
+        rv = csrf_json(client, f'/admin/set_role/{user1.id}', {'role': 'moderator'})
+        assert rv.status_code == 200
+        assert db.session.get(User, user1.id).role == 'moderator'
+
+    def test_non_admin_cannot_moderate(self, client, user1, user2):
+        login(client, 'alice', 'password123')
+        rv = csrf_post(client, f'/admin/user/{user2.id}/ban', {})
+        assert rv.status_code == 403
+        assert db.session.get(User, user2.id).is_blocked is False
+
+    def test_admin_delete_post(self, client, admin_user, user1):
+        p = Post(content='To delete', user_id=user1.id)
+        db.session.add(p)
+        db.session.commit()
+        login(client, 'admin', 'adminpass123')
+        rv = csrf_post(client, f'/admin/delete/post/{p.id}', {})
+        assert rv.status_code == 200
+        assert db.session.get(Post, p.id) is None
+
+    def test_moderator_can_delete_others_comment(self, client, admin_user, user1):
+        p = Post(content='Target', user_id=user1.id)
+        db.session.add(p)
+        db.session.flush()
+        c = Comment(content='Bad comment', user_id=user1.id, post_id=p.id)
+        db.session.add(c)
+        db.session.commit()
+        login(client, 'admin', 'adminpass123')
+        setup_csrf(client)
+        rv = client.delete(f'/comment/{c.id}/delete', headers={'X-CSRFToken': CSRF_TOKEN})
+        assert rv.status_code == 200
+        assert db.session.get(Comment, c.id) is None
+
+    def test_admin_delete_user_keeps_deleted_placeholder(self, client, admin_user, user1):
+        login(client, 'admin', 'adminpass123')
+        uid = user1.id
+        rv = csrf_post(client, f'/admin/user/{uid}/delete', {})
+        assert rv.status_code == 200
+        row = db.session.get(User, uid)
+        assert row is not None  # account stays in DB
+        assert row.is_deleted is True
+        assert row.display_name == 'Deleted user'
+        assert row.username.startswith('user_')
+        assert row.email == 'alice@test.com'

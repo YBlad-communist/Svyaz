@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ t('profile.deleted_user') }} — DevConnect{% endblock %}
+{% block content %}
+<div style="max-width:700px;margin:0 auto">
+
+<div class="card" style="margin-bottom:1rem;text-align:center;padding:2rem">
+    <img src="https://ui-avatars.com/api/?background=gray&name=Deleted&size=96" style="width:96px;height:96px;border-radius:50%;margin-bottom:0.75rem;opacity:0.6">
+    <div style="font-size:1.3rem;font-weight:700;color:var(--text2)">{{ t('profile.deleted_user') }}</div>
+    <div style="font-size:0.85rem;color:var(--text3);margin-top:0.3rem">{{ t('profile.deleted_subtitle') }}</div>
+</div>
+
+{% if posts.items %}
+<h2 style="font-size:1rem;margin-bottom:0.75rem;color:var(--text2)">{{ t('profile.deleted_posts_title') }}</h2>
+{% for post in posts.items %}
+<div class="card" style="margin-bottom:0.75rem">
+    <div style="padding:1rem">
+        <div style="font-size:0.78rem;color:var(--text3);margin-bottom:0.5rem">{{ post.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+        <div style="color:var(--text)">{{ post.content }}</div>
+        {% if post.media_url %}
+        <div style="margin-top:0.5rem">
+            {% include '_media.html' %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+{% if posts.has_prev %}
+<a href="?page={{ posts.prev_num }}" class="btn btn-secondary btn-sm" style="margin-bottom:1rem">{{ t('feed.load_prev') }}</a>
+{% endif %}
+{% else %}
+<p style="text-align:center;color:var(--text3);padding:2rem">{{ t('profile.deleted_no_posts') }}</p>
+{% endif %}
+
+</div>
+{% endblock %}
