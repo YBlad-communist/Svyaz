@@ -1,15 +1,34 @@
+# Environment & secrets
 .env
-__pycache__/
-*.pyc
-.vscode/
-.idea/
 secrets/db_password.txt
 secrets/db_replication_password.txt
 secrets/grafana_admin_password.txt
-backups/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
-uploads/
-/data/
+
+# Logs
+*.log
+
+# Database
 instance/
+
+# IDE
+.vscode/
+.idea/
+
+# Docker / deploy
+backups/
+/data/
+
+# Uploads
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
