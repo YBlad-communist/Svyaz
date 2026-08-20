@@ -48,7 +48,9 @@
     - name: Generate secrets
       shell: |
         openssl rand -hex 32 > /opt/svyaz/secrets/db_password.txt
-        openssl rand -hex 32 > /opt/svyaz/secrets/grafana_admin_password.txt
+        openssl rand -hex 32 > /opt/svyaz/secrets/db_replication_password.txt
+        openssl rand -hex 24 > /opt/svyaz/secrets/grafana_admin_password.txt
+        openssl rand -hex 24 > /opt/svyaz/.redis_password
       args:
         creates: /opt/svyaz/secrets/db_password.txt
 
@@ -57,6 +59,7 @@
         dest: /opt/svyaz/.env
         content: |
           SECRET_KEY="{{ lookup('password', '/dev/null chars=64') }}"
+          REDIS_PASSWORD="{{ lookup('file', '/opt/svyaz/.redis_password') }}"
           FLASK_ENV=production
           FLASK_DEBUG=0
           DOMAIN={{ domain }}
@@ -71,6 +74,17 @@
       loop:
         - /opt/svyaz/certbot/conf
         - /opt/svyaz/certbot/www
+        - /opt/svyaz/certbot/conf/live
+        - /opt/svyaz/certbot/conf/live/{{ domain }}
+
+    - name: Generate self-signed certificate (fallback until a real cert is issued)
+      shell: |
+        openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+          -keyout /opt/svyaz/certbot/conf/live/{{ domain }}/privkey.pem \
+          -out /opt/svyaz/certbot/conf/live/{{ domain }}/fullchain.pem \
+          -subj "/CN={{ domain }}"
+      args:
+        creates: /opt/svyaz/certbot/conf/live/{{ domain }}/fullchain.pem
 
     - name: Deploy Docker stack
       shell:
@@ -79,7 +93,7 @@
 
     - name: Health check
       uri:
-        url: "http://localhost:8000/health"
+        url: "http://localhost/health"
         timeout: 30
       register: health
       retries: 12

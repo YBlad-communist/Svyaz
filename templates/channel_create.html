@@ -1,45 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Create Channel — DevConnect{% endblock %}
+{% block title %}{{ t('channel.create_title') }}{% endblock %}
 {% block content %}
 <div style="max-width:600px;margin:0 auto">
     <div class="card">
-        <div class="card-header"><i class="fas fa-plus-circle" style="color:var(--primary)"></i> Create Channel</div>
+        <div class="card-header"><i class="fas fa-plus-circle" style="color:var(--primary)"></i> {{ t('channel.create') }}</div>
         <div style="padding:1.5rem">
             <form method="POST" action="{{ url_for('channel_create') }}" enctype="multipart/form-data">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label class="form-label">Channel Address *</label>
+                    <label class="form-label">{{ t('channel.address') }} *</label>
                     <input type="text" name="name" class="form-control" placeholder="python_news" required pattern="[a-zA-Z0-9_-]+" maxlength="50">
-                    <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">Letters, numbers, _ and - only</div>
+                    <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">{{ t('channel.address_hint') }}</div>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Title *</label>
+                    <label class="form-label">{{ t('channel.title') }} *</label>
                     <input type="text" name="title" class="form-control" placeholder="Python News" required maxlength="100">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Description</label>
-                    <textarea name="description" class="form-control" rows="3" placeholder="What is this channel about..."></textarea>
+                    <label class="form-label">{{ t('channel.description') }}</label>
+                    <textarea name="description" class="form-control" rows="3" placeholder="{{ t('channel.description_ph') }}"></textarea>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Channel Type</label>
+                    <label class="form-label">{{ t('channel.type') }}</label>
                     <select name="type" class="form-control">
-                        <option value="public">Public — visible to everyone, instant join</option>
-                        <option value="private">Private — join by request or invitation</option>
+                        <option value="public">{{ t('channel.public') }}</option>
+                        <option value="private">{{ t('channel.private') }}</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Avatar</label>
+                    <label class="form-label">{{ t('channel.avatar') }}</label>
                     <input type="file" name="avatar" class="form-control" accept="image/*" onchange="validateFileSize(this, 5*1024*1024)">
                 </div>
 
                 <div style="display:flex;gap:0.75rem;margin-top:1.5rem">
-                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-rocket"></i> Create</button>
-                    <a href="{{ url_for('channels_list') }}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-rocket"></i> {{ t('channel.create_btn') }}</button>
+                    <a href="{{ url_for('channels_list') }}" class="btn btn-secondary">{{ t('channel.cancel') }}</a>
                 </div>
             </form>
         </div>

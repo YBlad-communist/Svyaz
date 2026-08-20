@@ -28,7 +28,6 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./migrations/001_it_social_network.sql:/docker-entrypoint-initdb.d/001_init.sql
-      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U svyaz"]
       interval: 5s
@@ -134,7 +133,7 @@ services:
       redis-master:
         condition: service_started
     volumes:
-      - uploads_data:/data/uploads
+      - uploads_data:/app/static/uploads
     networks:
       - svyaz_net
     logging: *default-logging
@@ -167,7 +166,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - uploads_data:/data/uploads
+      - uploads_data:/app/static/uploads
     networks:
       - svyaz_net
     command: ["celery", "-A", "celery_app", "worker", "-l", "info", "-c", "4", "--max-tasks-per-child=100"]
@@ -217,7 +216,7 @@ services:
       - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
-      - uploads_data:/data/uploads:ro
+      - uploads_data:/app/static/uploads:ro
     depends_on:
       - web
     networks:

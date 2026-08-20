@@ -642,7 +642,7 @@ def validate_url(url):
 
 HASHTAG_RE = re.compile(r'#(\w+)')
 ALLOWED_EXTENSIONS = frozenset({
-    'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp',
     'mp4', 'webm', 'ogg', 'mov',
     'pdf', 'doc', 'docx', 'txt', 'csv',
     'mp3', 'wav', 'flac',
@@ -685,13 +685,55 @@ def get_file_type(filepath):
     ext = os.path.splitext(filepath)[1].lower().lstrip('.')
     ext_map = {
         'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-        'gif': 'image/gif', 'webp': 'image/webp', 'svg': 'image/svg+xml',
+        'gif': 'image/gif', 'webp': 'image/webp',
         'ico': 'image/x-icon', 'bmp': 'image/bmp',
         'mp4': 'video/mp4', 'webm': 'video/webm', 'mov': 'video/quicktime',
         'pdf': 'application/pdf',
         'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'flac': 'audio/flac',
     }
     return ext_map.get(ext, 'application/octet-stream')
+
+
+def _verify_signature(filepath, ext):
+    """Verify that a binary upload's content matches its claimed extension.
+
+    Prevents polyglot uploads (e.g. an HTML/script file renamed to .png). Text
+    formats and container formats without a reliable signature are allowed.
+    """
+    ext = ext.lower()
+    if ext in ('png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm', 'mov',
+               'pdf', 'mp3', 'wav', 'flac', 'zip', 'docx', 'gz'):
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(16)
+        except OSError:
+            return False
+        if ext == 'png':
+            return header.startswith(b'\x89PNG\r\n\x1a\n')
+        if ext in ('jpg', 'jpeg'):
+            return header.startswith(b'\xff\xd8\xff')
+        if ext == 'gif':
+            return header.startswith(b'GIF8')
+        if ext == 'webp':
+            return header.startswith(b'RIFF') and header[8:12] == b'WEBP'
+        if ext in ('mp4', 'mov'):
+            return b'ftyp' in header[:8]
+        if ext == 'webm':
+            return header.startswith(b'\x1a\x45\xdf\xa3')
+        if ext == 'pdf':
+            return header.startswith(b'%PDF')
+        if ext == 'mp3':
+            return (header.startswith(b'ID3')
+                    or header[:2] in (b'\xff\xfb', b'\xff\xf3', b'\xff\xf2', b'\xff\xfa'))
+        if ext == 'wav':
+            return header.startswith(b'RIFF') and header[8:12] == b'WAVE'
+        if ext == 'flac':
+            return header.startswith(b'fLaC')
+        if ext in ('zip', 'docx'):
+            return header.startswith(b'PK\x03\x04')
+        if ext == 'gz':
+            return header.startswith(b'\x1f\x8b')
+    return True
 
 
 def safe_save_file(file_obj, prefix, allowed_types=None):
@@ -705,12 +747,19 @@ def safe_save_file(file_obj, prefix, allowed_types=None):
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     if ext not in ALLOWED_EXTENSIONS:
         return None, None
-    upload_dir = current_app.config.get('UPLOAD_FOLDER', 'uploads')
-    os.makedirs(upload_dir, exist_ok=True)
+    # Uploads are served as static assets (with nosniff); store under static/uploads
+    # so the /static/uploads/... URLs actually resolve and require no auth.
+    static_upload_dir = os.path.join(current_app.static_folder, 'uploads')
+    os.makedirs(static_upload_dir, exist_ok=True)
     unique_name = f"{prefix}_{uuid.uuid4().hex[:12]}.{ext}"
-    dest = os.path.join(upload_dir, unique_name)
+    dest = os.path.join(static_upload_dir, unique_name)
     file_obj.save(dest)
+    if not _verify_signature(dest, ext):
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        return None, None
     media_type = get_file_type(dest)
     url = f"/static/uploads/{unique_name}"
-    file_size = os.path.getsize(dest)
     return url, media_type

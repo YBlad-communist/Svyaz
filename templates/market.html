@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Frame Market — DevConnect{% endblock %}
+{% block title %}{{ t('market.title') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -146,29 +146,29 @@
 <!-- Hero -->
 <div class="market-hero">
     <div style="font-size:3rem;margin-bottom:0.5rem">🎭</div>
-    <div class="market-hero-title">Маркет рамок</div>
-    <div class="market-hero-sub">Unique avatar frames — like gifts in Telegram</div>
+    <div class="market-hero-title">{{ t('market.hero_title') }}</div>
+    <div class="market-hero-sub">{{ t('market.hero_sub') }}</div>
     {% if not current_user.is_premium_active() %}
     <div style="margin-top:1rem">
         <a href="{{ url_for('premium_page') }}" class="btn btn-premium btn-sm">
-            <i class="fas fa-crown"></i> Premium required to purchase
+            <i class="fas fa-crown"></i> {{ t('market.premium_required') }}
         </a>
     </div>
     {% else %}
     <div style="margin-top:0.75rem;font-size:0.82rem;color:rgba(255,255,255,0.5)">
-        Basic "Gold" frame is already in your collection 👑
+        {{ t('market.gold_hint') }}
     </div>
     {% endif %}
 </div>
 
 <!-- Фильтры -->
 <div class="filter-tabs">
-    <button class="filter-tab active" onclick="filterFrames('all', this)">All</button>
-    <button class="filter-tab" onclick="filterFrames('owned', this)">Mine</button>
-    <button class="filter-tab rarity-common" onclick="filterFrames('common', this)">Common</button>
-    <button class="filter-tab rarity-rare" onclick="filterFrames('rare', this)">Rare</button>
-    <button class="filter-tab rarity-epic" onclick="filterFrames('epic', this)">Epic</button>
-    <button class="filter-tab rarity-legendary" onclick="filterFrames('legendary', this)">Legendary</button>
+    <button class="filter-tab active" onclick="filterFrames('all', this)">{{ t('search.all') }}</button>
+    <button class="filter-tab" onclick="filterFrames('owned', this)">{{ t('market.mine') }}</button>
+    <button class="filter-tab rarity-common" onclick="filterFrames('common', this)">{{ t('market.common') }}</button>
+    <button class="filter-tab rarity-rare" onclick="filterFrames('rare', this)">{{ t('market.rare') }}</button>
+    <button class="filter-tab rarity-epic" onclick="filterFrames('epic', this)">{{ t('market.epic') }}</button>
+    <button class="filter-tab rarity-legendary" onclick="filterFrames('legendary', this)">{{ t('market.legendary') }}</button>
 </div>
 
 <!-- Grid -->
@@ -181,7 +181,7 @@
          id="fc-{{ frame.key }}">
 
         {% if is_equipped %}
-        <div class="equipped-badge">✓ Equipped</div>
+        <div class="equipped-badge">✓ {{ t('market.equipped') }}</div>
         {% endif %}
 
         <div class="frame-preview-wrap">
@@ -204,40 +204,40 @@
             <div class="frame-footer">
                 <div>
                     {% if frame.price == 0 %}
-                    <div class="frame-price free">Free</div>
-                    <div style="font-size:0.68rem;color:var(--text3)">for Premium</div>
+                    <div class="frame-price free">{{ t('market.free') }}</div>
+                    <div style="font-size:0.68rem;color:var(--text3)">{{ t('market.for_premium') }}</div>
                     {% else %}
                     <div class="frame-price">{{ frame.price }} ₽</div>
                     {% endif %}
                     <div class="frame-owners">
                         <i class="fas fa-users" style="font-size:0.65rem"></i>
-                        {{ frame.owners_count or 0 }} owners
+                        {{ t('market.owners', count=frame.owners_count or 0) }}
                     </div>
                 </div>
 
                 <div style="display:flex;flex-direction:column;gap:0.35rem;align-items:flex-end">
                     {% if is_equipped %}
                     <button class="btn btn-secondary btn-sm" disabled>
-                        <i class="fas fa-check"></i> Equipped
+                        <i class="fas fa-check"></i> {{ t('market.equipped') }}
                     </button>
                     {% elif is_owned %}
                     <button class="btn btn-primary btn-sm" onclick="equipFrame('{{ frame.key }}', '{{ frame.name }}')">
-                        <i class="fas fa-ring"></i> Equip
+                        <i class="fas fa-ring"></i> {{ t('market.equip') }}
                     </button>
                     {% elif current_user.is_premium_active() %}
                     <form method="POST" action="{{ url_for('buy_frame', frame_key=frame.key) }}" style="margin:0">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-premium btn-sm">
                             {% if frame.price == 0 %}
-                            <i class="fas fa-plus"></i> Get
+                            <i class="fas fa-plus"></i> {{ t('market.get') }}
                             {% else %}
-                            <i class="fas fa-shopping-bag"></i> Buy {{ frame.price }} ₽
+                            <i class="fas fa-shopping-bag"></i> {{ t('market.buy', price=frame.price) }}
                             {% endif %}
                         </button>
                     </form>
                     {% else %}
                     <a href="{{ url_for('premium_page') }}" class="btn btn-secondary btn-sm">
-                        <i class="fas fa-lock"></i> Premium
+                        <i class="fas fa-lock"></i> {{ t('market.premium_locked') }}
                     </a>
                     {% endif %}
                 </div>
@@ -250,7 +250,7 @@
 {% if not frames %}
 <div class="card" style="text-align:center;padding:4rem;color:var(--text3)">
     <div style="font-size:3rem;margin-bottom:1rem">🎭</div>
-    <div>Frames loading...</div>
+    <div>{{ t('market.loading') }}</div>
 </div>
 {% endif %}
 
@@ -283,7 +283,7 @@ async function equipFrame(key, name) {
             if (btn) {
                 btn.removeAttribute('disabled');
                 btn.className = 'btn btn-primary btn-sm';
-                btn.innerHTML = '<i class="fas fa-ring"></i> Надеть';
+                btn.innerHTML = '<i class="fas fa-ring"></i> ' + I18N['market.js_equip_btn'];
                 btn.onclick = function() { equipFrame(c.id.replace('fc-',''), name); };
             }
         });
@@ -293,13 +293,13 @@ async function equipFrame(key, name) {
             card.classList.add('equipped');
             const badge = document.createElement('div');
             badge.className = 'equipped-badge';
-            badge.textContent = '✓ Equipped';
+            badge.textContent = '✓ ' + I18N['market.equipped'];
             card.appendChild(badge);
             const btn = card.querySelector('button.btn-primary');
-            if (btn) { btn.disabled = true; btn.className = 'btn btn-secondary btn-sm'; btn.innerHTML = '<i class="fas fa-check"></i> Equipped'; btn.onclick = null; }
+            if (btn) { btn.disabled = true; btn.className = 'btn btn-secondary btn-sm'; btn.innerHTML = '<i class="fas fa-check"></i> ' + I18N['market.equipped']; btn.onclick = null; }
         }
         // Используем базовый showToast из base.html с ссылкой на профиль
-        baseShowToast(`Frame "${name}" equipped! Check your profile`, PROFILE_URL, 'success');
+        baseShowToast(I18N['market.js_equipped'].replace('{name}', name), PROFILE_URL, 'success');
     }
 }
 

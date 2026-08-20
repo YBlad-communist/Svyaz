@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Notifications — DevConnect{% endblock %}
+{% block title %}{{ t('notif.title') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -169,26 +169,26 @@
     <div class="notif-header-card">
         <div class="notif-header-title">
             <i class="fas fa-bell" style="color:var(--primary)"></i>
-            Notifications
+            {{ t('notif.header') }}
             {% set unread_total = notifications.items | selectattr('read', 'false') | list | length %}
         </div>
         <div style="display:flex;align-items:center;gap:0.75rem">
             {% if notifications.total %}
-            <span style="font-size:0.82rem;color:var(--text3)">{{ notifications.total }} total</span>
+            <span style="font-size:0.82rem;color:var(--text3)">{{ t('notif.total', n=notifications.total) }}</span>
             {% endif %}
             <button onclick="markAllRead()" class="btn btn-secondary btn-sm" id="markAllBtn">
-                <i class="fas fa-check-double"></i> Mark all read
+                <i class="fas fa-check-double"></i> {{ t('notif.mark_all_read') }}
             </button>
         </div>
     </div>
 
     <!-- Filters -->
     <div class="notif-filters">
-        <button class="notif-filter-btn active" onclick="filterNotifs('all', this)">All</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('like', this)"><i class="fas fa-heart"></i> Likes</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('comment', this)"><i class="fas fa-comment"></i> Comments</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('follow', this)"><i class="fas fa-user-plus"></i> Follows</button>
-        <button class="notif-filter-btn" onclick="filterNotifs('message', this)"><i class="fas fa-envelope"></i> Messages</button>
+        <button class="notif-filter-btn active" onclick="filterNotifs('all', this)">{{ t('search.all') }}</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('like', this)"><i class="fas fa-heart"></i> {{ t('notif.likes') }}</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('comment', this)"><i class="fas fa-comment"></i> {{ t('notif.comments') }}</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('follow', this)"><i class="fas fa-user-plus"></i> {{ t('notif.follows') }}</button>
+        <button class="notif-filter-btn" onclick="filterNotifs('message', this)"><i class="fas fa-envelope"></i> {{ t('notif.messages') }}</button>
     </div>
 
     <!-- List -->
@@ -213,7 +213,7 @@
                         {{ notif.created_at.strftime('%d.%m.%Y в %H:%M') }}
                     </span>
                     {% if not notif.read %}
-                    <span class="notif-badge notif-badge-new">New</span>
+                    <span class="notif-badge notif-badge-new">{{ t('notif.new') }}</span>
                     {% endif %}
                 </div>
             </div>
@@ -225,8 +225,8 @@
         {% else %}
         <div class="notif-empty">
             <span class="notif-empty-icon">🔔</span>
-            <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.4rem">Quiet for now</div>
-            <div style="font-size:0.88rem">Notifications will appear when someone<br>likes your post or messages you</div>
+            <div style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:0.4rem">{{ t('notif.empty_title') }}</div>
+            <div style="font-size:0.88rem">{{ t('notif.empty_sub') }}</div>
         </div>
         {% endif %}
     </div>
@@ -234,7 +234,7 @@
     {% if notifications.has_next %}
     <div style="text-align:center;margin-top:1rem">
         <a href="{{ url_for('notifications', page=notifications.next_num) }}" class="btn btn-secondary">
-            Load more
+            {{ t('notif.load_more') }}
         </a>
     </div>
     {% endif %}
@@ -259,7 +259,7 @@ async function markAllRead() {
         const badge = item.querySelector('.notif-badge-new');
         if (badge) badge.remove();
     });
-    document.getElementById('markAllBtn').innerHTML = '<i class="fas fa-check"></i> Done';
+    document.getElementById('markAllBtn').innerHTML = '<i class="fas fa-check"></i> ' + I18N['notif.done'];
     // Update counter in navbar
     const badge = document.querySelector('.nav-btn .badge');
     if (badge) badge.remove();

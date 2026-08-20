@@ -1,28 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Sign Up — DevConnect{% endblock %}
+{% block title %}{{ t('register.title') }}{% endblock %}
 {% block content %}
 <div class="auth-wrap">
     <div class="auth-card">
         <div class="auth-logo">
             <div class="auth-logo-text"><i class="fas fa-link"></i> DevConnect</div>
         </div>
-        <h2 class="auth-title">Create an account</h2>
-        <p class="auth-sub">Join the DevConnect community</p>
+        <h2 class="auth-title">{{ t('register.heading') }}</h2>
+        <p class="auth-sub">{{ t('register.sub') }}</p>
         <form method="POST">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label class="form-label">Username</label>
+                <label class="form-label">{{ t('login.username') }}</label>
                 <input type="text" name="username" class="form-control" placeholder="cool_username" required minlength="3" maxlength="32" autocomplete="username">
-                <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">3 to 32 characters</div>
+                <div style="font-size:0.75rem;color:var(--text3);margin-top:0.25rem">{{ t('register.username_hint') }}</div>
             </div>
             <div class="form-group">
-                <label class="form-label">Email</label>
+                <label class="form-label">{{ t('register.email') }}</label>
                 <input type="email" name="email" class="form-control" placeholder="you@example.com" required autocomplete="email">
             </div>
             <div class="form-group">
-                <label class="form-label">Password</label>
+                <label class="form-label">{{ t('login.password') }}</label>
                 <div style="position:relative">
-                    <input type="password" name="password" id="pwdInput" class="form-control" placeholder="Minimum 6 characters" required minlength="6" autocomplete="new-password">
+                    <input type="password" name="password" id="pwdInput" class="form-control" placeholder="{{ t('register.password_min') }}" required minlength="6" autocomplete="new-password">
                     <button type="button" onclick="togglePwd()" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer">
                         <i class="fas fa-eye" id="pwdEye"></i>
                     </button>
@@ -32,11 +32,11 @@
                 </div>
             </div>
         <button type="submit" class="btn btn-primary w-100" style="margin-top:0.5rem">
-            <i class="fas fa-user-plus"></i> Sign Up
+            <i class="fas fa-user-plus"></i> {{ t('nav.sign_up') }}
         </button>
     </form>
     <div style="text-align:center;margin-top:1.25rem;font-size:0.9rem;color:var(--text2)">
-        Уже есть аккаунт? <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">Sign In</a>
+        {{ t('register.already_account') }} <a href="{{ url_for('login') }}" style="color:var(--primary);font-weight:600">{{ t('nav.sign_in') }}</a>
     </div>
 </div>
 </div>

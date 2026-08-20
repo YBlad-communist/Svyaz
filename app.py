@@ -56,6 +56,7 @@ except ImportError:
 import redis
 
 from database import db
+from i18n import translate, get_js_strings, LANGUAGES
 from module import (User, Post, Like, Comment, Follow, Message, Notification, Chat,
     chat_participants, PinnedMessage, Reaction, EncryptedMessage, PreKey, SignalSession,
     sanitize_html, validate_url, validate_password, Hashtag, post_hashtags, Technology,
@@ -70,9 +71,19 @@ from module import (User, Post, Like, Comment, Follow, Message, Notification, Ch
 # Secret key validation
 # ============================================================
 _secret_key = os.environ.get('SECRET_KEY')
-if not _secret_key:
-    raise RuntimeError(
-        "SECRET_KEY is not set! Generate: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+_WEAK_SECRETS = {
+    'dev-secret-key-change-in-production-123456',
+    'dev-secret-key', 'changeme', 'change-me', 'change_me', 'secret',
+    'secret-key', 'secret_key', 'dev', 'test', 'default', 'password',
+    'your-secret-key-here', 'insecure', 'key', 'placeholder',
+}
+if not _secret_key or _secret_key.strip().lower() in _WEAK_SECRETS or len(_secret_key) < 32:
+    import warnings
+    _secret_key = secrets.token_urlsafe(48)
+    warnings.warn(
+        "SECRET_KEY is missing or a known/weak value — generated a strong random key. "
+        "Sessions will be reset on restart. Set a strong, stable SECRET_KEY in production.",
+        stacklevel=2,
     )
 
 
@@ -145,6 +156,16 @@ redis_available = False
 redis_client = None
 REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', '')
 REDIS_SENTINEL_HOSTS = os.environ.get('REDIS_SENTINEL_HOSTS', '')
+
+
+def _redis_url(db=0):
+    """Build a redis:// URL honoring REDIS_HOST/REDIS_PORT/REDIS_PASSWORD."""
+    host = os.environ.get('REDIS_HOST', 'localhost')
+    port = os.environ.get('REDIS_PORT', '6379')
+    if REDIS_PASSWORD:
+        from urllib.parse import quote_plus
+        return f"redis://:{quote_plus(REDIS_PASSWORD)}@{host}:{port}/{db}"
+    return f"redis://{host}:{port}/{db}"
 try:
     if REDIS_SENTINEL_HOSTS:
         sentinel_hosts = [
@@ -172,21 +193,50 @@ except Exception:
 
 
 def regenerate_session():
-    """Regenerate session ID to prevent session fixation attacks."""
-    preserved = dict(session)
+    """Mitigate session fixation by discarding attacker-controlled state.
+
+    The previous implementation copied the old session values back into the
+    (client-side, signed cookie) session, so it did not actually clear anything.
+    We now fully clear the session and mint a fresh CSRF token.
+    """
+    # Preserve the user's language preference (validated enum) across the
+    # session regeneration that happens on login/logout.
+    lang = session.get('lang')
+    if lang not in LANGUAGES:
+        lang = None
     session.clear()
-    session.update(preserved)
+    session['_csrf_token'] = secrets.token_hex(32)
+    if lang:
+        session['lang'] = lang
 
 
 def get_real_ip():
-    """Extract real IP considering X-Forwarded-For."""
-    forwarded = request.headers.get('X-Forwarded-For', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
+    """Extract the real client IP.
+
+    We intentionally do NOT trust a raw ``X-Forwarded-For`` header — an attacker
+    can spoof it to bypass IP-based rate limiting and the brute-force lockout.
+    The only trusted source is ``request.remote_addr``. When deployed behind a
+    reverse proxy, the ProxyFix middleware (enabled via TRUST_PROXY_HEADERS)
+    rewrites ``remote_addr`` from the proxy's header, which the proxy overwrites
+    on every request, so it remains non-spoofable by the client.
+    """
     return request.remote_addr or '127.0.0.1'
 
 
 app = Flask(__name__)
+
+# Trust reverse-proxy headers ONLY when explicitly configured (behind nginx).
+# This keeps request.remote_addr correct while preventing client spoofing.
+if os.environ.get('TRUST_PROXY_HEADERS', '').lower() in ('1', 'true', 'yes', 'on'):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# Allowed WebSocket origins — never "*" (cross-origin hijacking).
+ALLOWED_SOCKET_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        'SOCKET_ALLOWED_ORIGINS',
+        'http://localhost:5000,http://127.0.0.1:5000',
+    ).split(',') if o.strip()
+]
 
 
 is_testing = os.environ.get('FLASK_ENV') == 'testing'
@@ -194,7 +244,7 @@ limiter = Limiter(
     app=app,
     key_func=get_real_ip,
     default_limits=[] if is_testing else ["200 per day", "50 per hour"],
-    storage_uri="redis://localhost:6379" if (redis_available and not is_testing) else "memory://",
+    storage_uri=_redis_url(0) if (redis_available and not is_testing) else "memory://",
     enabled=not is_testing)
 
 
@@ -221,13 +271,39 @@ def inject_csp_nonce():
     return dict(csp_nonce=lambda: getattr(request, 'csp_nonce', ''))
 
 # ---------------------------------------------------------------------------
+# i18n (EN/RU)
+# ---------------------------------------------------------------------------
+@app.context_processor
+def inject_i18n():
+    lang = session.get('lang', 'en')
+    if lang not in LANGUAGES:
+        lang = 'en'
+    return dict(
+        lang=lang,
+        t=lambda key, **kw: translate(lang, key, **kw),
+        js_strings=get_js_strings(lang),
+    )
+
+@app.route('/lang/<code>')
+def set_language(code):
+    if code in LANGUAGES:
+        session['lang'] = code
+    referrer = request.referrer or ''
+    if referrer.startswith(request.host_url):
+        return redirect(referrer)
+    return redirect(url_for('index'))
+
+# ---------------------------------------------------------------------------
 # Talisman (HTTPS / Security Headers / CSP)
 # ---------------------------------------------------------------------------
 if not is_testing:
     _is_prod = os.environ.get('FLASK_ENV') == 'production'
     csp = {
         'default-src': "'self'",
-        'script-src': "'self'",
+        # Inline scripts/handlers are required by the templates; user-generated
+        # content is already sanitized server-side (nh3) and auto-escaped (Jinja),
+        # so inline JS here is dev-authored, not attacker-controlled.
+        'script-src': "'self' 'unsafe-inline'",
         'style-src': ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
         'img-src': "'self' data: https://ui-avatars.com",
         'connect-src': ["'self'", "ws://localhost:5000"],
@@ -243,21 +319,20 @@ if not is_testing:
              strict_transport_security_include_subdomains=True,
              strict_transport_security_preload=True,
              content_security_policy=csp,
-             content_security_policy_nonce_in=['script-src'],
              session_cookie_secure=_is_prod,
              referrer_policy='strict-origin-when-cross-origin',
              )
 
 # SocketIO for real-time (optional)
 if HAS_SOCKETIO:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet',
-                        message_queue=f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}/4"
-                        if os.environ.get('REDIS_HOST') else None)
+    socketio = SocketIO(app, cors_allowed_origins=ALLOWED_SOCKET_ORIGINS, async_mode='eventlet',
+                        message_queue=_redis_url(4) if os.environ.get('REDIS_HOST') else None)
 else:
     socketio = None
 
-# Prometheus metrics (optional)
-if HAS_METRICS:
+# Prometheus metrics (optional, disabled by default; requires METRICS_TOKEN to scrape)
+ENABLE_METRICS = os.environ.get('ENABLE_METRICS', '').lower() in ('1', 'true', 'yes', 'on')
+if HAS_METRICS and ENABLE_METRICS:
     metrics = PrometheusMetrics(app, group_by='endpoint')
     metrics.info('svyaz_info', 'Svyaz application info', version='2.0.0')
 else:
@@ -266,7 +341,7 @@ else:
 # Flask-Caching
 if HAS_CACHING:
     app.config['CACHE_TYPE'] = 'RedisCache' if os.environ.get('REDIS_HOST') else 'SimpleCache'
-    app.config['CACHE_REDIS_URL'] = f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', 6379)}/3"
+    app.config['CACHE_REDIS_URL'] = _redis_url(3)
     cache = Cache(app)
 
 
@@ -329,6 +404,14 @@ def load_user(user_id):
 @app.before_request
 def before_request():
     g.user = current_user
+    # Protect Prometheus metrics: require a valid bearer token (or disable via 403).
+    if request.path.rstrip('/') == '/metrics':
+        expected = os.environ.get('METRICS_TOKEN', '')
+        provided = request.headers.get('Authorization', '')
+        if provided.startswith('Bearer '):
+            provided = provided[7:]
+        if not expected or not provided or provided != expected:
+            return jsonify({'error': 'Forbidden'}), 403
     if current_user.is_authenticated:
         current_user.last_activity = datetime.utcnow()
         db.session.add(current_user)
@@ -381,27 +464,13 @@ def robots_txt():
 @app.route('/health')
 def health():
     db_ok = False
-    redis_ok = False
     try:
         db.session.execute(db.text('SELECT 1'))
         db_ok = True
     except Exception:
         pass
-    try:
-        if redis_available:
-            redis_client.ping()
-            redis_ok = True
-    except Exception:
-        pass
     status = 200 if db_ok else 503
-    response = jsonify({
-        'status': 'healthy' if status == 200 else 'degraded',
-        'database': 'ok' if db_ok else 'down',
-        'redis': 'ok' if redis_ok else 'down',
-        'version': '2.0.0',
-        'timestamp': datetime.utcnow().isoformat(),
-    })
-    return response, status
+    return jsonify({'status': 'ok' if status == 200 else 'degraded'}), status
 
 
 @app.route('/readiness')
@@ -473,6 +542,7 @@ def totp_verify():
 
 @app.route('/totp/setup', methods=['GET', 'POST'])
 @login_required
+@csrf_required
 def totp_setup():
     if not HAS_TOTP:
         return '2FA not available', 503
@@ -518,6 +588,7 @@ def totp_setup():
 
 @app.route('/totp/disable', methods=['POST'])
 @login_required
+@csrf_required
 def totp_disable():
     current_user.totp_secret = None
     current_user.totp_enabled = False
@@ -534,6 +605,7 @@ def totp_disable():
 @app.route('/api/e2ee/identity-key', methods=['GET', 'POST'])
 @login_required
 @limiter.limit("30 per hour")
+@csrf_required
 def e2ee_identity_key():
     if request.method == 'POST':
         data = request.get_json(silent=True)
@@ -553,6 +625,7 @@ def e2ee_identity_key():
 @app.route('/api/e2ee/prekeys', methods=['POST'])
 @login_required
 @limiter.limit("30 per hour")
+@csrf_required
 def e2ee_upload_prekeys():
     data = request.get_json(silent=True)
     if not data or not isinstance(data.get('prekeys'), list):
@@ -584,6 +657,7 @@ def e2ee_get_prekeys(user_id):
 @app.route('/api/e2ee/send', methods=['POST'])
 @login_required
 @limiter.limit("60 per hour")
+@csrf_required
 def e2ee_send():
     data = request.get_json(silent=True)
     if not data or not data.get('chat_id') or not data.get('ciphertext'):
@@ -645,6 +719,7 @@ def e2ee_messages(chat_id):
 @app.route('/api/e2ee/session', methods=['POST'])
 @login_required
 @limiter.limit("30 per hour")
+@csrf_required
 def e2ee_save_session():
     """Save or update a Signal session for a group participant."""
     data = request.get_json(silent=True)
@@ -696,6 +771,8 @@ def e2ee_get_session(chat_id):
 
 @app.route('/api/e2ee/session/<int:chat_id>/delete', methods=['DELETE'])
 @login_required
+@limiter.limit("30 per hour")
+@csrf_required
 def e2ee_delete_session(chat_id):
     """Delete the current user's Signal session for a chat."""
     SignalSession.query.filter_by(chat_id=chat_id, user_id=current_user.id).delete()
@@ -726,23 +803,33 @@ def e2ee_group_keys(chat_id):
 # WebSocket events (conditional)
 if HAS_SOCKETIO and socketio:
 
+    def _socket_is_chat_member(chat_id):
+        if not current_user or not current_user.is_authenticated:
+            return False
+        chat = db.session.get(Chat, chat_id)
+        return bool(chat) and current_user in chat.participants
+
     @socketio.on('join')
     def handle_join(data):
-        if data.get('chat_id'):
-            join_room(f"chat_{data['chat_id']}")
+        chat_id = data.get('chat_id')
+        if chat_id and _socket_is_chat_member(chat_id):
+            join_room(f"chat_{chat_id}")
 
     @socketio.on('leave')
     def handle_leave(data):
-        if data.get('chat_id'):
-            leave_room(f"chat_{data['chat_id']}")
+        chat_id = data.get('chat_id')
+        if chat_id and _socket_is_chat_member(chat_id):
+            leave_room(f"chat_{chat_id}")
 
     @socketio.on('typing')
     def handle_typing(data):
-        emit('typing', {
-            'chat_id': data.get('chat_id'),
-            'user_id': current_user.id,
-            'username': current_user.username,
-        }, room=f"chat_{data.get('chat_id')}", include_self=False)
+        chat_id = data.get('chat_id')
+        if chat_id and _socket_is_chat_member(chat_id):
+            emit('typing', {
+                'chat_id': chat_id,
+                'user_id': current_user.id,
+                'username': current_user.username,
+            }, room=f"chat_{chat_id}", include_self=False)
 
 
 # ---------------------------------------------------------------------------
@@ -761,6 +848,10 @@ def internal_error(e):
 @app.errorhandler(403)
 def forbidden(e):
     return render_template('error.html', error_code=403, message="Access denied"), 403
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    return render_template('error.html', error_code=405, message="Method not allowed"), 405
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -809,10 +900,10 @@ def register():
             flash(pw_msg, 'error')
             return redirect(url_for('register'))
         if User.query.filter_by(username=username).first():
-            flash('Username already taken', 'error')
+            flash('Registration failed, please try again.', 'error')
             return redirect(url_for('register'))
         if User.query.filter_by(email=email).first():
-            flash('Email already in use', 'error')
+            flash('Registration failed, please try again.', 'error')
             return redirect(url_for('register'))
         user = User(username=username, email=email,
                     password_hash=generate_password_hash(password, method='pbkdf2:sha256', salt_length=16),
@@ -875,8 +966,9 @@ def login():
             flash('Invalid username or password', 'error')
     return render_template('login.html')
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 @login_required
+@csrf_required
 def logout():
     logout_user()
     return redirect(url_for('index'))
@@ -1175,6 +1267,7 @@ def notifications():
 
 @app.route('/api/notifications/poll')
 @login_required
+@limiter.limit("120 per minute")
 def poll_notifications():
     only_type = request.args.get('type', 'message').strip()
     limit = request.args.get('limit', 5, type=int)
@@ -2355,6 +2448,18 @@ def add_reaction(message_id):
 @login_required
 def user_online(user_id):
     user = User.query.get_or_404(user_id)
+    if user.id != current_user.id:
+        # Only reveal presence to users with a relationship (shared chat or follow).
+        shared_chat = Chat.query.filter(
+            Chat.participants.any(id=current_user.id),
+            Chat.participants.any(id=user.id)
+        ).first()
+        follow = Follow.query.filter(
+            ((Follow.follower_id == current_user.id) & (Follow.followed_id == user.id)) |
+            ((Follow.follower_id == user.id) & (Follow.followed_id == current_user.id))
+        ).first()
+        if not shared_chat and not follow:
+            return jsonify({'error': 'Forbidden'}), 403
     is_online = user.last_activity and (datetime.utcnow() - user.last_activity) < timedelta(minutes=5)
     return jsonify({'online': is_online})
 

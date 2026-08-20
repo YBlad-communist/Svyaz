@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Chats — DevConnect{% endblock %}
+{% block title %}{{ t('chats.title') }}{% endblock %}
 {% block extra_css %}
 <style>
 /* Дополнительные стили для страницы чатов */
@@ -214,24 +214,24 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
     <!-- Sidebar -->
     <div class="chat-sidebar" id="chatSidebar">
         <div class="chat-sidebar-header">
-            <span class="chat-sidebar-title">Messages</span>
-            <button class="btn btn-primary btn-icon btn-sm" onclick="showNewChatModal()" title="New chat">
+            <span class="chat-sidebar-title">{{ t('chats.messages') }}</span>
+            <button class="btn btn-primary btn-icon btn-sm" onclick="showNewChatModal()" title="{{ t('chats.new_chat') }}">
                 <i class="fas fa-edit"></i>
             </button>
-            <a href="{{ url_for('create_group') }}" class="btn btn-secondary btn-icon btn-sm" title="Create group">
+            <a href="{{ url_for('create_group') }}" class="btn btn-secondary btn-icon btn-sm" title="{{ t('chats.create_group') }}">
                 <i class="fas fa-users"></i>
             </a>
         </div>
         <div class="chat-search">
             <div style="position:relative">
                 <i class="fas fa-search" style="position:absolute;left:0.75rem;top:50%;transform:translateY(-50%);color:var(--text3);font-size:0.82rem"></i>
-                <input type="text" id="chatSearchInput" class="form-control" placeholder="Search chats..." style="padding-left:2.2rem;border-radius:50px">
+                <input type="text" id="chatSearchInput" class="form-control" placeholder="{{ t('chats.search_ph') }}" style="padding-left:2.2rem;border-radius:50px">
             </div>
         </div>
         <div class="chat-list" id="chatList">
             <div style="text-align:center;padding:2rem;color:var(--text3)">
                 <div class="spinner" style="margin:0 auto 0.75rem"></div>
-                Loading...
+                {{ t('chats.loading') }}
             </div>
         </div>
     </div>
@@ -241,10 +241,10 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         <!-- Empty state -->
         <div id="emptyChatState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text3);text-align:center;padding:2rem">
             <div style="font-size:4rem;margin-bottom:1rem">💬</div>
-            <div style="font-size:1.2rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">Select a chat</div>
-            <div style="font-size:0.9rem;margin-bottom:1.5rem">or start a new conversation</div>
+            <div style="font-size:1.2rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">{{ t('chats.select_chat') }}</div>
+            <div style="font-size:0.9rem;margin-bottom:1.5rem">{{ t('chats.or_start') }}</div>
             <button onclick="showNewChatModal()" class="btn btn-primary">
-                <i class="fas fa-edit"></i> New Message
+                <i class="fas fa-edit"></i> {{ t('chats.new_message') }}
             </button>
         </div>
 
@@ -259,10 +259,10 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
                 <div class="chat-header-status" id="chatStatus">...</div>
             </div>
             <div style="display:flex;gap:0.25rem">
-                <button class="btn btn-ghost btn-icon" id="chatInfoBtn" onclick="toggleChatInfo()" title="Info">
+                <button class="btn btn-ghost btn-icon" id="chatInfoBtn" onclick="toggleChatInfo()" title="{{ t('chats.info') }}">
                     <i class="fas fa-info-circle"></i>
                 </button>
-                <button class="btn btn-ghost btn-icon" onclick="deleteCurrentChat()" title="Delete chat">
+                <button class="btn btn-ghost btn-icon" onclick="deleteCurrentChat()" title="{{ t('chats.delete_chat') }}">
                     <i class="fas fa-trash" style="color:var(--text3)"></i>
                 </button>
             </div>
@@ -288,12 +288,12 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         <!-- Input area (fixed) -->
         <div class="chat-input-area" id="chatInputArea" style="display:none">
             <div class="chat-input-row">
-                <label class="btn btn-ghost btn-icon" for="mediaUpload" title="Attach file" style="flex-shrink:0">
+                <label class="btn btn-ghost btn-icon" for="mediaUpload" title="{{ t('chats.attach') }}" style="flex-shrink:0">
                     <i class="fas fa-paperclip"></i>
                     <input type="file" id="mediaUpload" style="display:none" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" onchange="if(!validateFileSize(this))return;attachFile(this.files[0])">
                 </label>
-                <textarea class="chat-input-box" id="msgInput" placeholder="Message..." rows="1"></textarea>
-                <button class="btn btn-ghost btn-icon" id="emojiToggle" title="Reactions">
+                <textarea class="chat-input-box" id="msgInput" placeholder="{{ t('chats.msg_ph') }}" rows="1"></textarea>
+                <button class="btn btn-ghost btn-icon" id="emojiToggle" title="{{ t('chats.reactions') }}">
                     <i class="fas fa-smile"></i>
                 </button>
                 <button class="chat-send-btn" id="sendBtn">
@@ -313,12 +313,12 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
 <div id="newChatModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
     <div style="background:var(--surface2);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:1.75rem;width:90%;max-width:400px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
-            <h3 style="font-weight:700;color:var(--text)">New Chat</h3>
+            <h3 style="font-weight:700;color:var(--text)">{{ t('chats.new_chat_modal') }}</h3>
             <button onclick="closeNewChatModal()" class="btn btn-ghost btn-icon"><i class="fas fa-times"></i></button>
         </div>
         <div style="position:relative;margin-bottom:0.75rem">
             <i class="fas fa-search" style="position:absolute;left:0.75rem;top:50%;transform:translateY(-50%);color:var(--text3);font-size:0.85rem"></i>
-            <input type="text" id="newChatSearch" class="form-control" placeholder="Find a user..." style="padding-left:2.3rem">
+            <input type="text" id="newChatSearch" class="form-control" placeholder="{{ t('chats.find_user') }}" style="padding-left:2.3rem">
         </div>
         <div id="newChatResults" style="max-height:300px;overflow-y:auto"></div>
     </div>
@@ -374,7 +374,7 @@ async function loadChats(filter = '') {
     const filtered = filter ? chats.filter(c => c.username.toLowerCase().includes(filter.toLowerCase())) : chats;
 
     if (!filtered.length) {
-        list.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text3);font-size:0.88rem">No chats.<br>Start a conversation!</div>';
+        list.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text3);font-size:0.88rem">' + I18N['chats.js_no_chats'] + '</div>';
         return;
     }
     list.innerHTML = filtered.map(c => `
@@ -385,7 +385,7 @@ async function loadChats(filter = '') {
             </div>
             <div class="chat-item-info">
                 <div class="chat-item-name">${c.username}</div>
-                <div class="chat-item-preview">${c.last_message || 'No messages'}</div>
+                <div class="chat-item-preview">${c.last_message || I18N['chats.js_no_msgs']}</div>
             </div>
             <div class="chat-item-meta">
                 <div class="chat-item-time">${c.last_time}</div>
@@ -471,7 +471,7 @@ async function openChat(chatId) {
     const avatarImg = chatItem?.querySelector('.avatar')?.src || '';
     document.getElementById('chatAvatar').src = avatarImg;
     document.getElementById('chatName').textContent = info.name || chatItem?.querySelector('.chat-item-name')?.textContent || '';
-    document.getElementById('chatStatus').textContent = info.is_group ? 'Group' : 'Offline';
+    document.getElementById('chatStatus').textContent = info.is_group ? I18N['chats.group'] : I18N['chats.offline'];
 
     // For mobile: hide sidebar
     if (window.innerWidth <= 768) {
@@ -505,7 +505,7 @@ async function loadMessages() {
         lastMsgTimestamp = msgs[msgs.length - 1].created_at_full;
         renderMessages(msgs, container);
     } else {
-        container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:2rem;font-size:0.9rem">No messages. Be the first to write!</div>';
+        container.innerHTML = '<div class="chat-empty-placeholder" style="text-align:center;color:var(--text3);padding:2rem;font-size:0.9rem">' + I18N['chats.js_empty_msgs'] + '</div>';
     }
     scrollToBottom();
     initScrollWatcher();
@@ -525,7 +525,7 @@ async function pollMessages() {
         if (document.hidden || isUserScrolledUp) {
             const lastMsg = msgs[msgs.length - 1];
             if (lastMsg && lastMsg.sender_id !== ME && lastMsg.id !== lastNotifMsgId) {
-                showToastMessage(`Новое сообщение от ${lastMsg.sender_username}`, 'info');
+                showToastMessage(I18N['chats.js_new_msg'] + ' ' + lastMsg.sender_username, 'info');
                 lastNotifMsgId = lastMsg.id;
             }
         }
@@ -550,7 +550,7 @@ function renderMessages(msgs, container, append = false) {
         fragment.appendChild(div);
     });
     if (append) {
-        const placeholder = container.querySelector('[style*="Нет сообщений"]');
+        const placeholder = container.querySelector('.chat-empty-placeholder');
         if (placeholder) placeholder.remove();
         container.appendChild(fragment);
     } else {
@@ -579,7 +579,7 @@ function createMsgElement(msg, showName = true) {
     if (msg.reply_to) {
         html += `<div class="reply-preview">
             <div class="reply-preview-name">${msg.reply_to.sender_username}</div>
-            <div class="reply-preview-text">${msg.reply_to.media_type ? '📎 Медиа' : escHtml(msg.reply_to.content || '')}</div>
+            <div class="reply-preview-text">${msg.reply_to.media_type ? '📎 ' + I18N['chats.media'] : escHtml(msg.reply_to.content || '')}</div>
         </div>`;
     }
 
@@ -589,7 +589,7 @@ function createMsgElement(msg, showName = true) {
         } else if (msg.media_type === 'video') {
             html += `<video controls style="max-width:100%;max-height:200px;border-radius:12px;display:block;margin-bottom:0.3rem"><source src="${msg.media_url}"></video>`;
         } else {
-            html += `<a href="${msg.media_url}" style="display:block;padding:0.4rem;background:rgba(0,0,0,0.1);border-radius:8px;color:inherit;text-decoration:none;font-size:0.85rem;margin-bottom:0.3rem"><i class="fas fa-file"></i> File</a>`;
+            html += `<a href="${msg.media_url}" style="display:block;padding:0.4rem;background:rgba(0,0,0,0.1);border-radius:8px;color:inherit;text-decoration:none;font-size:0.85rem;margin-bottom:0.3rem"><i class="fas fa-file"></i> ${I18N['chats.file']}</a>`;
         }
     }
 
@@ -645,7 +645,7 @@ async function sendMessage() {
         const msg = await res.json();
         if (msg.id) {
             const container = document.getElementById('chatMessages');
-            const placeholder = container.querySelector('[style*="Нет сообщений"]');
+            const placeholder = container.querySelector('.chat-empty-placeholder');
             if (placeholder) placeholder.remove();
             if (!messageExistsInDom(msg.id)) {
                 const el = createMsgElement({ ...msg, reactions: {} }, true);
@@ -697,7 +697,7 @@ function setReply(msgId, username, text) {
     replyToId = msgId;
     document.getElementById('replyPreview').style.display = 'block';
     document.getElementById('replyName').textContent = username;
-    document.getElementById('replyText').textContent = text || '📎 Медиа';
+    document.getElementById('replyText').textContent = text || '📎 ' + I18N['chats.media'];
     document.getElementById('msgInput').focus();
 }
 
@@ -717,9 +717,9 @@ function showMsgMenu(e, msgId, isMine) {
             ${REACTIONS.map(r => `<button class="emoji-btn" onclick="addReaction(${msgId},'${r}');closeMsgMenu()">${r}</button>`).join('')}
         </div>
         <div style="border-top:1px solid var(--border);margin:0.25rem 0"></div>
-        <button class="context-item" onclick="replyToMsg(${msgId});closeMsgMenu()"><i class="fas fa-reply"></i> Reply</button>
-        <button class="context-item" onclick="copyMsg(${msgId});closeMsgMenu()"><i class="fas fa-copy"></i> Copy</button>
-        ${isMine ? `<button class="context-item danger" onclick="deleteMsgAction(${msgId});closeMsgMenu()"><i class="fas fa-trash"></i> Delete</button>` : ''}
+        <button class="context-item" onclick="replyToMsg(${msgId});closeMsgMenu()"><i class="fas fa-reply"></i> ${I18N['chats.reply']}</button>
+        <button class="context-item" onclick="copyMsg(${msgId});closeMsgMenu()"><i class="fas fa-copy"></i> ${I18N['chats.copy']}</button>
+        ${isMine ? `<button class="context-item danger" onclick="deleteMsgAction(${msgId});closeMsgMenu()"><i class="fas fa-trash"></i> ${I18N['chats.delete']}</button>` : ''}
     `;
     menu.style.display = 'block';
     const x = Math.min(e.clientX, window.innerWidth - 220);
@@ -733,7 +733,7 @@ function closeMsgMenu() { document.getElementById('msgContextMenu').style.displa
 function replyToMsg(msgId) {
     const el = document.getElementById(`msg-${msgId}`);
     if (!el) return;
-    const name = el.querySelector('.message-sender-name')?.textContent?.trim() || 'Вы';
+    const name = el.querySelector('.message-sender-name')?.textContent?.trim() || I18N['chats.you'];
     const text = el.querySelector('.message-bubble span')?.textContent || '';
     setReply(msgId, name, text);
 }
@@ -745,7 +745,7 @@ function copyMsg(msgId) {
 }
 
 async function deleteMsgAction(msgId) {
-    if (!confirm('Delete message?')) return;
+    if (!confirm(I18N['chats.delete_msg_confirm'])) return;
     const res = await api(`/api/chat/${currentChatId}/delete_message/${msgId}`, 'DELETE');
     if (res?.success) {
         const el = document.getElementById(`msg-${msgId}`);
@@ -765,7 +765,7 @@ async function checkOnline(userId) {
     const res = await fetch(`/api/user/${userId}/online`);
     const data = await res.json();
     const statusEl = document.getElementById('chatStatus');
-    if (statusEl) statusEl.innerHTML = data.online ? '<span class="chat-header-online"><i class="fas fa-circle" style="font-size:0.6rem"></i> Online</span>' : 'Offline';
+    if (statusEl) statusEl.innerHTML = data.online ? '<span class="chat-header-online"><i class="fas fa-circle" style="font-size:0.6rem"></i> ' + I18N['chats.online'] + '</span>' : I18N['chats.offline'];
 }
 
 // Group info
@@ -773,11 +773,11 @@ async function toggleChatInfo() {
     if (!chatIsGroup) return;
     const res = await fetch(`/api/group/${currentChatId}/members`);
     const data = await res.json();
-    alert(`Group members:\n${data.members.map(m => `${m.username}${m.is_admin?' (Admin)':''}`).join('\n')}`);
+    alert(I18N['chats.group_members'] + '\n' + data.members.map(m => `${m.username}${m.is_admin ? ' (' + I18N['chats.admin_suffix'] + ')' : ''}`).join('\n'));
 }
 
 async function deleteCurrentChat() {
-    if (!confirm('Delete chat?')) return;
+    if (!confirm(I18N['chats.delete_chat_confirm'])) return;
     const res = await api(`/api/chat/${currentChatId}/delete`);
     if (res?.success) {
         currentChatId = null;
@@ -808,7 +808,7 @@ document.getElementById('newChatSearch').addEventListener('input', async functio
             <img src="${u.avatar}" class="avatar avatar-md">
             <div><div style="font-weight:600">${u.username}</div></div>
         </div>
-    `).join('') : '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.88rem">Not found</div>';
+    `).join('') : '<div style="text-align:center;padding:1rem;color:var(--text3);font-size:0.88rem">' + I18N['chats.not_found'] + '</div>';
 });
 
 async function startNewChat(username) {

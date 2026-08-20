@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Sign In — DevConnect{% endblock %}
+{% block title %}{{ t('login.title') }}{% endblock %}
 {% block content %}
 <div class="auth-wrap">
     <div class="auth-card">
         <div class="auth-logo">
             <div class="auth-logo-text"><i class="fas fa-link"></i> DevConnect</div>
         </div>
-        <h2 class="auth-title">Welcome back!</h2>
-        <p class="auth-sub">Sign in to your account</p>
+        <h2 class="auth-title">{{ t('login.welcome') }}</h2>
+        <p class="auth-sub">{{ t('login.sub') }}</p>
         <form method="POST">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label class="form-label">Username</label>
+                <label class="form-label">{{ t('login.username') }}</label>
                 <input type="text" name="username" class="form-control" placeholder="username" required autocomplete="username">
             </div>
             <div class="form-group">
-                <label class="form-label">Password</label>
+                <label class="form-label">{{ t('login.password') }}</label>
                 <div style="position:relative">
                     <input type="password" name="password" id="pwdInput" class="form-control" placeholder="••••••••" required autocomplete="current-password">
                     <button type="button" onclick="togglePwd()" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer">
@@ -24,11 +24,11 @@
                 </div>
             </div>
         <button type="submit" class="btn btn-primary w-100" style="margin-top:0.5rem">
-            <i class="fas fa-sign-in-alt"></i> Sign In
+            <i class="fas fa-sign-in-alt"></i> {{ t('nav.sign_in') }}
         </button>
     </form>
     <div style="text-align:center;margin-top:1.25rem;font-size:0.9rem;color:var(--text2)">
-        Нет аккаунта? <a href="{{ url_for('register') }}" style="color:var(--primary);font-weight:600">Sign Up</a>
+        {{ t('login.no_account') }} <a href="{{ url_for('register') }}" style="color:var(--primary);font-weight:600">{{ t('nav.sign_up') }}</a>
     </div>
 </div>
 </div>

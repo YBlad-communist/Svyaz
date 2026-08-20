@@ -1,72 +1,72 @@
 {% extends "base.html" %}
-{% block title %}Edit {{ channel.title }} — DevConnect{% endblock %}
+{% block title %}{{ t('channel.edit_title', title=channel.title) }}{% endblock %}
 {% block content %}
 <div style="max-width:600px;margin:0 auto">
     <div class="card">
-        <div class="card-header"><i class="fas fa-edit" style="color:var(--primary)"></i> Edit Channel</div>
+        <div class="card-header"><i class="fas fa-edit" style="color:var(--primary)"></i> {{ t('channel.edit') }}</div>
         <div style="padding:1.5rem">
             <form method="POST" action="{{ url_for('channel_edit', channel_name=channel.name) }}" enctype="multipart/form-data">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
                 <div class="form-group">
-                    <label class="form-label">Title</label>
+                    <label class="form-label">{{ t('channel.title') }}</label>
                     <input type="text" name="title" class="form-control" value="{{ channel.title }}" required maxlength="100">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Description</label>
+                    <label class="form-label">{{ t('channel.description') }}</label>
                     <textarea name="description" class="form-control" rows="3">{{ channel.description }}</textarea>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Channel Type</label>
+                    <label class="form-label">{{ t('channel.type') }}</label>
                     <select name="type" class="form-control">
-                        <option value="public" {% if channel.type == 'public' %}selected{% endif %}>Public</option>
-                        <option value="private" {% if channel.type == 'private' %}selected{% endif %}>Private</option>
+                        <option value="public" {% if channel.type == 'public' %}selected{% endif %}>{{ t('channel.public_short') }}</option>
+                        <option value="private" {% if channel.type == 'private' %}selected{% endif %}>{{ t('channel.private_short') }}</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Avatar</label>
+                    <label class="form-label">{{ t('channel.avatar') }}</label>
                     <input type="file" name="avatar" class="form-control" accept="image/*" onchange="validateFileSize(this, 5*1024*1024)">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Cover</label>
+                    <label class="form-label">{{ t('channel.cover') }}</label>
                     <input type="file" name="cover" class="form-control" accept="image/*" onchange="validateFileSize(this, 5*1024*1024)">
                 </div>
 
                 <div style="display:flex;gap:0.75rem;margin-top:1.5rem">
-                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-save"></i> Save</button>
-                    <a href="{{ url_for('channel_page', channel_name=channel.name) }}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary" style="flex:1"><i class="fas fa-save"></i> {{ t('channel.save') }}</button>
+                    <a href="{{ url_for('channel_page', channel_name=channel.name) }}" class="btn btn-secondary">{{ t('channel.cancel') }}</a>
                 </div>
             </form>
         </div>
     </div>
 
     <div class="card" style="margin-top:1rem">
-        <div class="card-header"><i class="fas fa-link" style="color:var(--primary)"></i> Invite Links</div>
+        <div class="card-header"><i class="fas fa-link" style="color:var(--primary)"></i> {{ t('channel.invite_links') }}</div>
         <div style="padding:1rem">
             <form method="POST" action="{{ url_for('channel_create_invite', channel_name=channel.name) }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div style="display:flex;gap:0.5rem;align-items:center">
                     <select name="expires_hours" class="form-control" style="width:auto">
-                        <option value="24">24 hours</option>
-                        <option value="72" selected>3 days</option>
-                        <option value="168">7 days</option>
-                        <option value="720">30 days</option>
+                        <option value="24">{{ t('channel.dur_24h') }}</option>
+                        <option value="72" selected>{{ t('channel.dur_3d') }}</option>
+                        <option value="168">{{ t('channel.dur_7d') }}</option>
+                        <option value="720">{{ t('channel.dur_30d') }}</option>
                     </select>
-                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Create link</button>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> {{ t('channel.create_link') }}</button>
                 </div>
             </form>
         </div>
     </div>
 
     <div class="card" style="margin-top:1rem">
-        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> Management</div>
+        <div class="card-header"><i class="fas fa-users" style="color:var(--primary)"></i> {{ t('channel.management') }}</div>
         <div style="padding:1rem">
             <a href="{{ url_for('channel_members_page', channel_name=channel.name) }}" class="btn btn-secondary w-100">
-                <i class="fas fa-users-cog"></i> Manage Members
+                <i class="fas fa-users-cog"></i> {{ t('channel.manage_members') }}
             </a>
         </div>
     </div>
