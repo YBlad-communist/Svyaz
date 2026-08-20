@@ -24,7 +24,7 @@ EN = {
     'js.open': "Open",
     # index.html
     'index.title': "DevConnect — Developer Social Network",
-    'index.hero_title': "Code. Connect. Ship.",
+    'index.hero_title': "Idea. Develop. Deploy.",
     'index.hero_sub': "A social network built for developers. Share code snippets, discuss architecture, collaborate on ideas — all with end-to-end encryption.",
     'index.get_started': "Get Started Free",
     'index.feat_feed_t': "Developer Feed",
@@ -443,7 +443,7 @@ RU = {
     'js.open': "Открыть",
     # index.html
     'index.title': "DevConnect — Социальная сеть для разработчиков",
-    'index.hero_title': "Код. Общение. Деплой.",
+    'index.hero_title': "Идея. Разработка. Деплой.",
     'index.hero_sub': "Социальная сеть, созданная для разработчиков. Делитесь кодом, обсуждайте архитектуру, коллаборируйте над идеями — всё с сквозным шифрованием.",
     'index.get_started': "Начать бесплатно",
     'index.feat_feed_t': "Лента разработчика",
