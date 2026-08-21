@@ -2457,7 +2457,9 @@ def send_message(chat_id):
     content = request.form.get('content', '').strip()
     media_url = media_type = media_name = media_size = None
     if 'media' in request.files:
-        media_url, media_type, media_name, media_size = safe_save_file(request.files['media'], f"msg_{secrets.token_urlsafe(8)}")
+        raw_name, media_type, media_name, media_size = safe_save_file(request.files['media'], f"msg_{secrets.token_urlsafe(8)}", private=True)
+        if raw_name:
+            media_url = f"/api/chat/{chat_id}/media/{raw_name}"
     reply_to_id = request.form.get('reply_to', type=int)
     if not content and not media_url:
         return jsonify({'error': 'Empty message'}), 400
@@ -2959,6 +2961,25 @@ def set_user_role(user_id):
 # ------------------------------
 # Files
 # ------------------------------
+@app.route('/api/chat/<int:chat_id>/media/<filename>')
+@login_required
+def chat_media(chat_id, filename):
+    chat = db.session.get(Chat, chat_id)
+    if not chat:
+        abort(404)
+    is_member = db.session.query(chat_participants).filter_by(
+        chat_id=chat.id, user_id=current_user.id).first()
+    if not is_member:
+        abort(403)
+    clean = secure_filename(filename)
+    if not clean or clean != filename:
+        abort(403)
+    media_dir = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], 'chat_media'))
+    file_path = os.path.join(media_dir, clean)
+    if not os.path.abspath(file_path).startswith(media_dir) or not os.path.isfile(file_path):
+        abort(404)
+    return send_from_directory(media_dir, clean)
+
 @app.route('/uploads/<folder>/<filename>')
 @login_required
 def download_file(folder, filename):

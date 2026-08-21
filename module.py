@@ -866,9 +866,12 @@ def _verify_signature(filepath, ext):
     return True
 
 
-def safe_save_file(file_obj, prefix, allowed_types=None):
+def safe_save_file(file_obj, prefix, allowed_types=None, private=False):
     """Save an uploaded file, returning (url, media_type, filename, size)
-    or (None, None, None, None)."""
+    or (None, None, None, None).
+    When private=True, saves outside the static folder so the file is
+    not directly accessible as a static asset — callers must serve it
+    through an authenticated endpoint."""
     import uuid
     from werkzeug.utils import secure_filename
     from flask import current_app
@@ -878,12 +881,17 @@ def safe_save_file(file_obj, prefix, allowed_types=None):
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     if ext not in ALLOWED_EXTENSIONS:
         return None, None, None, None
-    # Uploads are served as static assets (with nosniff); store under static/uploads
-    # so the /static/uploads/... URLs actually resolve and require no auth.
-    static_upload_dir = os.path.join(current_app.static_folder, 'uploads')
-    os.makedirs(static_upload_dir, exist_ok=True)
     unique_name = f"{prefix}_{uuid.uuid4().hex[:12]}.{ext}"
-    dest = os.path.join(static_upload_dir, unique_name)
+    if private:
+        # Save outside static/ — not directly accessible by URL
+        private_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'chat_media')
+        os.makedirs(private_dir, exist_ok=True)
+        dest = os.path.join(private_dir, unique_name)
+    else:
+        # Uploads are served as static assets (with nosniff); store under static/uploads
+        static_upload_dir = os.path.join(current_app.static_folder, 'uploads')
+        os.makedirs(static_upload_dir, exist_ok=True)
+        dest = os.path.join(static_upload_dir, unique_name)
     file_obj.save(dest)
     if not _verify_signature(dest, ext):
         try:
@@ -893,5 +901,9 @@ def safe_save_file(file_obj, prefix, allowed_types=None):
         return None, None, None, None
     media_type = get_file_type(dest, ext)
     size = os.path.getsize(dest)
-    url = f"/static/uploads/{unique_name}"
+    if private:
+        # Return only the filename; the caller builds an authenticated URL
+        url = unique_name
+    else:
+        url = f"/static/uploads/{unique_name}"
     return url, media_type, filename, size
