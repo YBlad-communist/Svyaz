@@ -22,6 +22,7 @@ except ImportError:
 from flask import (Flask, render_template, request, jsonify, session,
                    redirect, url_for, flash, g, send_from_directory, abort)
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from flask_limiter import Limiter, util
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -1586,6 +1587,10 @@ def idea_like(idea_id):
             db.session.add(notif)
     try:
         db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        existing = idea.likers.filter_by(id=current_user.id).first()
+        return jsonify({'liked': bool(existing), 'count': idea.likes_count})
     except Exception:
         db.session.rollback()
         return jsonify({'error': 'Server error'}), 500
