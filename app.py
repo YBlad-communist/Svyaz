@@ -1196,11 +1196,24 @@ def profile(username):
     user = User.query.filter_by(username=username).first_or_404()
     page = request.args.get('page', 1, int)
     per_page = 20
+    tab = request.args.get('tab', 'posts')
     posts = Post.query.filter_by(user_id=user.id).options(joinedload(Post.author)).order_by(Post.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     if user.is_deleted:
         return render_template('profile_deleted.html', profile_user=user, posts=posts)
     is_following = Follow.query.filter_by(follower_id=current_user.id, followed_id=user.id).first() is not None
-    return render_template('profile.html', profile_user=user, posts=posts, is_following=is_following)
+
+    my_ideas = []
+    joined_ideas = []
+    if tab == 'ideas':
+        my_ideas = Idea.query.filter_by(author_id=user.id, is_active=True).order_by(Idea.created_at.desc()).all()
+        approved_ids = [r.idea_id for r in db.session.query(idea_join_requests.c.idea_id).filter_by(
+            user_id=user.id, status='approved').all()]
+        if approved_ids:
+            joined_ideas = Idea.query.filter(Idea.id.in_(approved_ids), Idea.is_active == True).all()
+
+    return render_template('profile.html', profile_user=user, posts=posts, is_following=is_following,
+                           profile_tab=tab, my_ideas=my_ideas, joined_ideas=joined_ideas,
+                           idea_status_labels=IDEA_STATUS_LABELS)
 
 @app.route('/upload_avatar', methods=['POST'])
 @login_required

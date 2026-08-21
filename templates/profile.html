@@ -82,6 +82,58 @@
     {% endif %}
 </div>
 
+<div class="card" style="margin-bottom:1rem;overflow:hidden">
+    <div style="display:flex;border-bottom:1px solid var(--border)">
+        <a href="{{ url_for('profile', username=profile_user.username, tab='posts') }}" class="notif-filter-btn {% if profile_tab == 'posts' %}active{% endif %}" style="flex:1;text-align:center;border-radius:0;border:none;padding:0.75rem">
+            <i class="fas fa-pen"></i> {{ t('profile.tab_posts') }}
+        </a>
+        <a href="{{ url_for('profile', username=profile_user.username, tab='ideas') }}" class="notif-filter-btn {% if profile_tab == 'ideas' %}active{% endif %}" style="flex:1;text-align:center;border-radius:0;border:none;padding:0.75rem">
+            <i class="fas fa-lightbulb"></i> {{ t('profile.tab_ideas') }}
+        </a>
+    </div>
+</div>
+
+{% if profile_tab == 'ideas' %}
+    {% if my_ideas %}
+    <div class="card" style="margin-bottom:1rem">
+        <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border)">
+            <h3 style="font-weight:800;color:var(--text);margin:0;font-size:1rem"><i class="fas fa-lightbulb" style="color:var(--warning)"></i> {{ t('profile.my_ideas', count=my_ideas|length) }}</h3>
+        </div>
+        {% for idea in my_ideas %}
+        <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="display:flex;align-items:center;gap:0.75rem;padding:0.85rem 1.5rem;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text);transition:background 0.15s" onmouseover="this.style.background='rgba(99,102,241,0.04)'" onmouseout="this.style.background='transparent'">
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;font-size:0.92rem;margin-bottom:0.15rem">{{ idea.title }}</div>
+                <div style="font-size:0.8rem;color:var(--text3)">{{ idea.created_at.strftime('%d.%m.%Y') }}</div>
+            </div>
+            <span style="font-size:0.75rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:50px;background:rgba(99,102,241,0.1);color:var(--primary)">{{ idea.likes_count }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if joined_ideas %}
+    <div class="card" style="margin-bottom:1rem">
+        <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--border)">
+            <h3 style="font-weight:800;color:var(--text);margin:0;font-size:1rem"><i class="fas fa-users" style="color:#10b981"></i> {{ t('profile.joined_ideas', count=joined_ideas|length) }}</h3>
+        </div>
+        {% for idea in joined_ideas %}
+        <a href="{{ url_for('idea_detail', idea_id=idea.id) }}" style="display:flex;align-items:center;gap:0.75rem;padding:0.85rem 1.5rem;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text);transition:background 0.15s" onmouseover="this.style.background='rgba(16,185,129,0.04)'" onmouseout="this.style.background='transparent'">
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;font-size:0.92rem;margin-bottom:0.15rem">{{ idea.title }}</div>
+                <div style="font-size:0.8rem;color:var(--text3)">{{ idea.created_at.strftime('%d.%m.%Y') }}</div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not my_ideas and not joined_ideas %}
+    <div class="card" style="text-align:center;padding:2.5rem;color:var(--text3)">
+        <div style="font-size:2.5rem;margin-bottom:0.75rem">💡</div>
+        <div>{{ t('profile.no_ideas') }}</div>
+    </div>
+    {% endif %}
+{% else %}
 {% for post in posts.items %}
 <div class="post-card" id="post-{{ post.id }}">
     <div class="post-header">
@@ -115,6 +167,7 @@
     <div style="font-size:2.5rem;margin-bottom:0.75rem">✍️</div>
     <div>{{ t('profile.no_posts') }}</div>
 </div>
+{% endif %}
 {% endif %}
 
 </div>
