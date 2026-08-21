@@ -998,7 +998,8 @@ def login():
 
         user = User.query.filter_by(username=username, is_deleted=False).first()
         if user and user.is_blocked:
-            flash('Your account has been blocked', 'error')
+            audit_logger.info('Login attempt on blocked account', extra={'username': username, 'ip': real_ip})
+            flash('Invalid username or password', 'error')
             return redirect(url_for('login'))
 
         if user and check_password_hash(user.password_hash, password):
