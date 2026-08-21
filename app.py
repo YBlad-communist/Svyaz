@@ -1703,6 +1703,15 @@ def idea_set_status(idea_id):
         idea.is_active = False
     elif new_status in ('open', 'in_progress', 'completed'):
         idea.is_active = True
+    if new_status in ('completed', 'archived'):
+        members = idea.get_members()
+        for member in members:
+            if member.id != current_user.id:
+                notif = Notification(
+                    user_id=member.id, type='idea_status',
+                    content=f"Idea \"{idea.title[:50]}\" is now {IDEA_STATUS_LABELS.get(new_status, new_status)}",
+                    link=f"/idea/{idea_id}")
+                db.session.add(notif)
     db.session.commit()
     flash(f'Idea status updated to {IDEA_STATUS_LABELS.get(new_status, new_status)}', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
@@ -2002,6 +2011,11 @@ def channel_post_comment(channel_name, post_id):
     comment = ChannelPostComment(post_id=post_id, user_id=current_user.id, content=sanitize_html(content))
     db.session.add(comment)
     post.comments_count += 1
+    if post.author_id != current_user.id:
+        notif = Notification(user_id=post.author_id, type='comment',
+                             content=f"{current_user.username} commented on a post in {channel.title}",
+                             link=f"/channel/{channel_name}#post-{post_id}")
+        db.session.add(notif)
     try:
         db.session.commit()
     except Exception:
