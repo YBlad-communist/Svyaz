@@ -1,5 +1,5 @@
 from app import db
-from module import Idea, idea_join_requests
+from module import Idea, idea_join_requests, Notification
 from conftest import login, csrf_post, csrf_json
 
 
@@ -116,6 +116,33 @@ class TestIdeaJoinRequests:
             idea_id=idea.id, user_id=user2.id).first()
         assert req.status == 'approved'
 
+    def test_approve_sends_notification(self, client, user1, user2):
+        idea = Idea(title='Join', description='Desc', author_id=user1.id)
+        db.session.add(idea)
+        db.session.commit()
+        db.session.execute(idea_join_requests.insert().values(
+            idea_id=idea.id, user_id=user2.id, status='pending'))
+        db.session.commit()
+
+        login(client, 'alice', 'password123')
+        csrf_post(client, f'/idea/{idea.id}/join/{user2.id}/approve', {})
+        notif = Notification.query.filter_by(user_id=user2.id, type='idea_approved').first()
+        assert notif is not None
+        assert 'approved' in notif.content.lower()
+
+    def test_reject_sends_notification(self, client, user1, user2):
+        idea = Idea(title='Join', description='Desc', author_id=user1.id)
+        db.session.add(idea)
+        db.session.commit()
+        db.session.execute(idea_join_requests.insert().values(
+            idea_id=idea.id, user_id=user2.id, status='pending'))
+        db.session.commit()
+
+        login(client, 'alice', 'password123')
+        csrf_post(client, f'/idea/{idea.id}/join/{user2.id}/reject', {})
+        notif = Notification.query.filter_by(user_id=user2.id, type='idea_rejected').first()
+        assert notif is not None
+
     def test_non_author_cannot_approve(self, client, user1, user2):
         idea = Idea(title='Join', description='Desc', author_id=user1.id)
         db.session.add(idea)
@@ -124,3 +151,87 @@ class TestIdeaJoinRequests:
         login(client, 'bob', 'password123')
         rv = csrf_post(client, f'/idea/{idea.id}/join/{user2.id}/approve', {})
         assert rv.status_code == 403
+
+    def test_cancel_join_request(self, client, user1, user2):
+        idea = Idea(title='Join', description='Desc', author_id=user1.id)
+        db.session.add(idea)
+        db.session.commit()
+        db.session.execute(idea_join_requests.insert().values(
+            idea_id=idea.id, user_id=user2.id, status='pending'))
+        db.session.commit()
+
+        login(client, 'bob', 'password123')
+        rv = csrf_post(client, f'/idea/{idea.id}/join/cancel', {}, follow_redirects=True)
+        assert rv.status_code == 200
+        req = db.session.query(idea_join_requests).filter_by(
+            idea_id=idea.id, user_id=user2.id).first()
+        assert req is None
+
+    def test_rerequest_after_rejection(self, client, user1, user2):
+        idea = Idea(title='Join', description='Desc', author_id=user1.id)
+        db.session.add(idea)
+        db.session.commit()
+        db.session.execute(idea_join_requests.insert().values(
+            idea_id=idea.id, user_id=user2.id, status='rejected'))
+        db.session.commit()
+
+        login(client, 'bob', 'password123')
+        rv = csrf_post(client, f'/idea/{idea.id}/join', {}, follow_redirects=True)
+        assert rv.status_code == 200
+        req = db.session.query(idea_join_requests).filter_by(
+            idea_id=idea.id, user_id=user2.id).first()
+        assert req.status == 'pending'
+
+
+class TestIdeaLifecycle:
+    def test_set_status(self, client, user1):
+        idea = Idea(title='Lifecycle', description='Desc', author_id=user1.id, status='open')
+        db.session.add(idea)
+        db.session.commit()
+
+        login(client, 'alice', 'password123')
+        rv = csrf_post(client, f'/idea/{idea.id}/status', {'status': 'in_progress'}, follow_redirects=True)
+        assert rv.status_code == 200
+        assert idea.status == 'in_progress'
+
+    def test_set_status_invalid(self, client, user1):
+        idea = Idea(title='Lifecycle', description='Desc', author_id=user1.id, status='open')
+        db.session.add(idea)
+        db.session.commit()
+
+        login(client, 'alice', 'password123')
+        rv = csrf_post(client, f'/idea/{idea.id}/status', {'status': 'invalid'}, follow_redirects=True)
+        assert rv.status_code == 200
+        assert idea.status == 'open'
+
+    def test_archive_sets_inactive(self, client, user1):
+        idea = Idea(title='Lifecycle', description='Desc', author_id=user1.id, status='open')
+        db.session.add(idea)
+        db.session.commit()
+
+        login(client, 'alice', 'password123')
+        csrf_post(client, f'/idea/{idea.id}/status', {'status': 'archived'})
+        assert idea.is_active is False
+        assert idea.status == 'archived'
+
+    def test_non_author_cannot_change_status(self, client, user1, user2):
+        idea = Idea(title='Lifecycle', description='Desc', author_id=user1.id, status='open')
+        db.session.add(idea)
+        db.session.commit()
+
+        login(client, 'bob', 'password123')
+        rv = csrf_post(client, f'/idea/{idea.id}/status', {'status': 'completed'}, follow_redirects=True)
+        assert idea.status == 'open'
+
+    def test_get_members(self, client, user1, user2):
+        idea = Idea(title='Members', description='Desc', author_id=user1.id)
+        db.session.add(idea)
+        db.session.commit()
+        db.session.execute(idea_join_requests.insert().values(
+            idea_id=idea.id, user_id=user2.id, status='approved'))
+        db.session.commit()
+
+        members = idea.get_members()
+        member_ids = [m.id for m in members]
+        assert user1.id in member_ids
+        assert user2.id in member_ids

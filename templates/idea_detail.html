@@ -25,6 +25,10 @@
                         <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:50px;background:rgba(245,158,11,0.12);color:#f59e0b;font-size:0.78rem;font-weight:600">
                             <i class="fas fa-cube"></i> {{ project_type_labels.get(idea.project_type, idea.project_type) if idea.project_type else t('idea.other') }}
                         </span>
+                        {% set status_colors = {'draft':'#9ca3af','open':'#10b981','in_progress':'#3b82f6','completed':'#8b5cf6','archived':'#6b7280'} %}
+                        <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:50px;background:{{ status_colors.get(idea.status, '#9ca3af') }}20;color:{{ status_colors.get(idea.status, '#9ca3af') }};font-size:0.78rem;font-weight:600">
+                            <i class="fas fa-circle" style="font-size:0.45rem"></i> {{ idea_status_labels.get(idea.status, idea.status) }}
+                        </span>
                         {% if idea.author.is_viewable %}
                         <a href="{{ url_for('profile', username=idea.author.username) }}" style="color:var(--text2);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:0.4rem">
                             <img src="{{ idea.author.avatar }}" style="width:24px;height:24px;border-radius:50%">
@@ -53,6 +57,24 @@
                 </div>
                 {% endif %}
             </div>
+
+            {% if current_user.id == idea.author_id %}
+            <div style="margin-bottom:1.5rem;display:flex;gap:0.4rem;flex-wrap:wrap">
+                {% for st in idea_statuses %}
+                    {% if st != 'draft' or idea.status == 'draft' %}
+                    {% if st not in ('archived',) %}
+                    <form method="POST" action="{{ url_for('idea_set_status', idea_id=idea.id) }}" style="display:inline">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="status" value="{{ st }}">
+                        <button type="submit" class="btn btn-sm" style="{% if idea.status == st %}font-weight:800;text-decoration:underline;{% endif %}background:{{ status_colors.get(st, '#9ca3af') }}15;color:{{ status_colors.get(st, '#9ca3af') }};border:1px solid {{ status_colors.get(st, '#9ca3af') }}40" {% if idea.status == st %}disabled{% endif %}>
+                            {{ idea_status_labels.get(st, st) }}
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
 
             <div style="color:var(--text);line-height:1.7;margin-bottom:1.5rem;font-size:0.95rem">
                 {{ idea.description }}
@@ -112,9 +134,12 @@
                     <i class="fas fa-comments"></i> {{ t('idea.go_chat') }}
                 </a>
                 {% elif idea.has_pending %}
-                <button class="btn btn-secondary" disabled>
-                    <i class="fas fa-clock"></i> {{ t('idea.review') }}
-                </button>
+                <form method="POST" action="{{ url_for('idea_cancel_join', idea_id=idea.id) }}" style="display:inline">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> {{ t('idea.cancel_request') }}
+                    </button>
+                </form>
                 {% else %}
                 <form method="POST" action="{{ url_for('idea_join_request', idea_id=idea.id) }}" style="display:inline">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -152,6 +177,42 @@
                             </button>
                         </form>
                     </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if members and members|length > 0 %}
+            <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem">
+                <h4 style="font-weight:700;color:var(--text);margin:0 0 0.75rem;font-size:0.9rem">
+                    <i class="fas fa-users" style="color:var(--primary)"></i> {{ t('idea.team_members', count=members|length) }}
+                </h4>
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
+                    {% for member in members %}
+                    <a href="{{ url_for('profile', username=member.username) }}" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.7rem;border-radius:50px;background:var(--bg2);text-decoration:none;color:var(--text);font-size:0.85rem;font-weight:600;border:1px solid var(--border)">
+                        <img src="{{ member.avatar }}" style="width:20px;height:20px;border-radius:50%">
+                        {{ member.display_name }}
+                        {% if member.id == idea.author_id %}
+                        <span style="font-size:0.7rem;color:var(--warning)"><i class="fas fa-star"></i></span>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if all_requests and all_requests|length > 0 %}
+            <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem">
+                <h4 style="font-weight:700;color:var(--text);margin:0 0 0.75rem;font-size:0.9rem">
+                    <i class="fas fa-history" style="color:var(--text3)"></i> {{ t('idea.all_requests', count=all_requests|length) }}
+                </h4>
+                {% set req_colors = {'pending':'#f59e0b','approved':'#10b981','rejected':'#ef4444'} %}
+                {% for req in all_requests %}
+                <div style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0.6rem;font-size:0.85rem;color:var(--text2)">
+                    <img src="{{ req.user.avatar }}" style="width:22px;height:22px;border-radius:50%">
+                    <a href="{{ url_for('profile', username=req.user.username) }}" style="color:var(--text);text-decoration:none;font-weight:600">{{ req.user.username }}</a>
+                    <span style="font-size:0.75rem;color:{{ req_colors.get(req.status, '#9ca3af') }};font-weight:600;text-transform:uppercase">{{ req.status }}</span>
+                    <span style="font-size:0.7rem;color:var(--text3)">{{ req.created_at.strftime('%d.%m.%Y') }}</span>
                 </div>
                 {% endfor %}
             </div>

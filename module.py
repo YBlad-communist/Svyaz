@@ -314,6 +314,13 @@ class Role(db.Model):
     icon = db.Column(db.String(20), nullable=True)
 
 
+IDEA_STATUSES = ['draft', 'open', 'in_progress', 'completed', 'archived']
+IDEA_STATUS_LABELS = {
+    'draft': 'Draft', 'open': 'Open', 'in_progress': 'In Progress',
+    'completed': 'Completed', 'archived': 'Archived',
+}
+
+
 class Idea(db.Model):
     __tablename__ = 'ideas'
     id = db.Column(db.Integer, primary_key=True)
@@ -328,6 +335,7 @@ class Idea(db.Model):
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     chat_id = db.Column(db.Integer, db.ForeignKey('chats.id', use_alter=True), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
+    status = db.Column(db.String(20), default='open')
     technologies = db.relationship('Technology', secondary=idea_technologies, lazy='select', backref=db.backref('ideas', lazy='dynamic'))
     roles_needed = db.relationship('Role', secondary=idea_roles, lazy='select', backref=db.backref('ideas', lazy='dynamic'))
     likers = db.relationship('User', secondary=idea_likes, lazy='dynamic', backref=db.backref('liked_ideas', lazy='dynamic'))
@@ -352,17 +360,37 @@ class Idea(db.Model):
         ).first()
         return req and req.status == 'pending'
 
+    def get_request_status(self, user):
+        if not user or not user.is_authenticated:
+            return None
+        req = db.session.query(idea_join_requests).filter_by(
+            idea_id=self.id, user_id=user.id
+        ).first()
+        return req.status if req else None
+
     def is_member(self, user):
         if not user or not user.is_authenticated:
             return False
         if self.author_id == user.id:
             return True
-        if self.chat_id:
-            return user in self.chat.participants
         req = db.session.query(idea_join_requests).filter_by(
             idea_id=self.id, user_id=user.id, status='approved'
         ).first()
         return req is not None
+
+    def get_members(self):
+        approved = db.session.query(idea_join_requests.c.user_id).filter_by(
+            idea_id=self.id, status='approved'
+        ).all()
+        user_ids = [r.user_id for r in approved]
+        if self.author_id not in user_ids:
+            user_ids.append(self.author_id)
+        return User.query.filter(User.id.in_(user_ids), User.is_deleted == False).all()
+
+    def get_all_requests(self):
+        return db.session.query(idea_join_requests).filter_by(idea_id=self.id).order_by(
+            idea_join_requests.c.created_at.desc()
+        ).all()
 
 
 class Like(db.Model):

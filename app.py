@@ -63,6 +63,7 @@ from module import (User, Post, Like, Comment, Follow, Message, Notification, Ch
     sanitize_html, validate_url, validate_password, Hashtag, post_hashtags, Technology,
     Role, Idea, idea_technologies, idea_roles, user_technologies, idea_likes,
     idea_join_requests, DEVELOPER_ROLES, SKILL_LEVELS, PROJECT_TYPES,
+    IDEA_STATUSES, IDEA_STATUS_LABELS,
     Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite,
     channel_members, validate_email, validate_username,
     get_file_type, extract_and_link_hashtags, safe_save_file, Warning)
@@ -1397,7 +1398,12 @@ def ideas_feed():
     tech_filter = request.args.get('tech', '').strip()
     role_filter = request.args.get('role', '').strip()
     type_filter = request.args.get('type', '').strip()
+    status_filter = request.args.get('status', '').strip()
     query = Idea.query.filter_by(is_active=True).options(joinedload(Idea.author))
+    if status_filter and status_filter in IDEA_STATUSES:
+        query = query.filter_by(status=status_filter)
+    elif not status_filter:
+        query = query.filter(Idea.status.in_(['open', 'in_progress']))
     if type_filter and type_filter in PROJECT_TYPES:
         query = query.filter_by(project_type=type_filter)
     if tech_filter:
@@ -1412,7 +1418,9 @@ def ideas_feed():
         idea.liked_by_user = idea.is_liked_by(current_user)
     return render_template('ideas.html', ideas=ideas, technologies=technologies,
                            roles=roles, sort=sort, tech_filter=tech_filter, role_filter=role_filter,
-                           type_filter=type_filter, project_types=PROJECT_TYPE_LABELS)
+                           type_filter=type_filter, status_filter=status_filter,
+                           project_types=PROJECT_TYPE_LABELS,
+                           idea_statuses=IDEA_STATUSES, idea_status_labels=IDEA_STATUS_LABELS)
 
 PROJECT_TYPE_LABELS = {
     'game': 'Game', 'website': 'Website', 'app': 'Application',
@@ -1502,17 +1510,22 @@ def idea_detail(idea_id):
     idea.is_author = idea.author_id == current_user.id
     idea.is_member = idea.is_member(current_user)
     idea.has_pending = idea.has_pending_request(current_user)
+    members = idea.get_members()
     pending_requests = []
+    all_requests = []
     if idea.is_author:
-        reqs = db.session.query(
-            idea_join_requests.c.user_id, idea_join_requests.c.created_at, idea_join_requests.c.status
-        ).filter_by(idea_id=idea.id, status='pending').all()
+        reqs = idea.get_all_requests()
         for r in reqs:
             user = db.session.get(User, r.user_id)
             if user and not user.is_deleted:
-                pending_requests.append({'user': user, 'created_at': r.created_at})
+                entry = {'user': user, 'created_at': r.created_at, 'status': r.status}
+                all_requests.append(entry)
+                if r.status == 'pending':
+                    pending_requests.append(entry)
     return render_template('idea_detail.html', idea=idea, pending_requests=pending_requests,
-                           project_type_labels=PROJECT_TYPE_LABELS)
+                           all_requests=all_requests, members=members,
+                           project_type_labels=PROJECT_TYPE_LABELS,
+                           idea_statuses=IDEA_STATUSES, idea_status_labels=IDEA_STATUS_LABELS)
 
 @app.route('/idea/<int:idea_id>/like', methods=['POST'])
 @login_required
@@ -1561,17 +1574,47 @@ def idea_join_request(idea_id):
         elif existing.status == 'approved':
             flash('You are already in the discussion group', 'info')
         else:
-            flash('Your request was rejected', 'error')
+            db.session.execute(idea_join_requests.update().where(
+                idea_join_requests.c.idea_id == idea.id,
+                idea_join_requests.c.user_id == current_user.id,
+            ).values(status='pending', created_at=datetime.utcnow()))
+            notif = Notification(user_id=idea.author_id, type='join_request',
+                                 content=f"{current_user.username} wants to join the idea discussion",
+                                 link=f"/idea/{idea_id}")
+            db.session.add(notif)
+            db.session.commit()
+            flash('Join request re-sent!', 'success')
         return redirect(url_for('idea_detail', idea_id=idea_id))
     db.session.execute(idea_join_requests.insert().values(
         idea_id=idea.id, user_id=current_user.id, status='pending', created_at=datetime.utcnow()
     ))
-    notif = Notification(user_id=idea.author_id, type='follow',
+    notif = Notification(user_id=idea.author_id, type='join_request',
                          content=f"{current_user.username} wants to join the idea discussion",
                          link=f"/idea/{idea_id}")
     db.session.add(notif)
     db.session.commit()
     flash('Join request sent!', 'success')
+    return redirect(url_for('idea_detail', idea_id=idea_id))
+
+@app.route('/idea/<int:idea_id>/join/cancel', methods=['POST'])
+@login_required
+@csrf_required
+def idea_cancel_join(idea_id):
+    idea = db.session.get(Idea, idea_id)
+    if not idea:
+        abort(404)
+    existing = db.session.query(idea_join_requests).filter_by(
+        idea_id=idea.id, user_id=current_user.id, status='pending'
+    ).first()
+    if not existing:
+        flash('No pending request', 'info')
+        return redirect(url_for('idea_detail', idea_id=idea_id))
+    db.session.execute(idea_join_requests.delete().where(
+        idea_join_requests.c.idea_id == idea.id,
+        idea_join_requests.c.user_id == current_user.id,
+    ))
+    db.session.commit()
+    flash('Request cancelled', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
 
 @app.route('/idea/<int:idea_id>/join/<int:user_id>/approve', methods=['POST'])
@@ -1596,6 +1639,10 @@ def idea_approve_join(idea_id, user_id):
             user = db.session.get(User, user_id)
             if user and user not in chat.participants:
                 chat.participants.append(user)
+    notif = Notification(user_id=user_id, type='idea_approved',
+                         content=f"Your request to join \"{idea.title[:50]}\" was approved!",
+                         link=f"/idea/{idea_id}")
+    db.session.add(notif)
     db.session.commit()
     flash('Member added to group', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
@@ -1614,6 +1661,10 @@ def idea_reject_join(idea_id, user_id):
         idea_join_requests.c.user_id == user_id,
         idea_join_requests.c.status == 'pending'
     ).values(status='rejected'))
+    notif = Notification(user_id=user_id, type='idea_rejected',
+                         content=f"Your request to join \"{idea.title[:50]}\" was declined.",
+                         link=f"/idea/{idea_id}")
+    db.session.add(notif)
     db.session.commit()
     flash('Request rejected', 'success')
     return redirect(url_for('idea_detail', idea_id=idea_id))
@@ -1629,9 +1680,32 @@ def idea_delete(idea_id):
     if idea.author_id != current_user.id and current_user.role not in ('admin', 'moderator'):
         abort(403)
     idea.is_active = False
+    idea.status = 'archived'
     db.session.commit()
     flash('Idea deleted', 'success')
     return redirect(url_for('ideas_feed'))
+
+@app.route('/idea/<int:idea_id>/status', methods=['POST'])
+@login_required
+@csrf_required
+def idea_set_status(idea_id):
+    idea = db.session.get(Idea, idea_id)
+    if not idea or not idea.is_active:
+        abort(404)
+    if idea.author_id != current_user.id:
+        abort(403)
+    new_status = request.form.get('status', '').strip()
+    if new_status not in IDEA_STATUSES:
+        flash('Invalid status', 'error')
+        return redirect(url_for('idea_detail', idea_id=idea_id))
+    idea.status = new_status
+    if new_status == 'archived':
+        idea.is_active = False
+    elif new_status in ('open', 'in_progress', 'completed'):
+        idea.is_active = True
+    db.session.commit()
+    flash(f'Idea status updated to {IDEA_STATUS_LABELS.get(new_status, new_status)}', 'success')
+    return redirect(url_for('idea_detail', idea_id=idea_id))
 
 @app.route('/idea/<int:idea_id>/edit', methods=['GET', 'POST'])
 @login_required
@@ -3085,6 +3159,13 @@ def init_db():
                 conn.execute(text("ALTER TABLE channels ADD COLUMN post_permission VARCHAR(20) DEFAULT 'admins'"))
                 conn.commit()
                 logger.info('Added post_permission column to channels')
+        # Add idea lifecycle status column
+        idea_cols = {col['name'] for col in inspector.get_columns('ideas')}
+        if 'status' not in idea_cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE ideas ADD COLUMN status VARCHAR(20) DEFAULT 'open'"))
+                conn.commit()
+                logger.info('Added status column to ideas')
         # Ensure any new models (warnings) exist on existing databases
         db.create_all()
         logger.info('Ensured new tables exist (db.create_all)')
