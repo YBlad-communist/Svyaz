@@ -580,11 +580,27 @@ def totp_verify():
 
 
 @app.route('/totp/setup', methods=['GET', 'POST'])
-@login_required
 @csrf_required
 def totp_setup():
     if not HAS_TOTP:
         return '2FA not available', 503
+
+    # Resolve user: either from login_user (authenticated) or from pending_admin_setup_id
+    user = None
+    is_pending_admin = False
+    if current_user.is_authenticated:
+        user = current_user
+    else:
+        pending_id = session.get('pending_admin_setup_id')
+        if pending_id:
+            user = db.session.get(User, pending_id)
+            if not user:
+                session.pop('pending_admin_setup_id', None)
+                return redirect(url_for('login'))
+            is_pending_admin = True
+    if not user:
+        return redirect(url_for('login'))
+
     if request.method == 'POST':
         code = request.form.get('code', '').strip()
         secret = session.get('totp_setup_secret')
@@ -593,31 +609,39 @@ def totp_setup():
             return redirect(url_for('totp_setup'))
         totp = pyotp.TOTP(secret)
         if totp.verify(code, valid_window=1):
-            current_user.totp_secret = secret
-            current_user.totp_enabled = True
-            db.session.add(current_user)
+            user.totp_secret = secret
+            user.totp_enabled = True
+            db.session.add(user)
             # Generate 10 recovery codes
             from module import RecoveryCode
-            RecoveryCode.query.filter_by(user_id=current_user.id).delete()
+            RecoveryCode.query.filter_by(user_id=user.id).delete()
             raw_codes = []
             for _ in range(10):
                 raw = secrets.token_hex(8)
                 raw_codes.append(raw)
                 db.session.add(RecoveryCode(
-                    user_id=current_user.id,
+                    user_id=user.id,
                     code_hash=generate_password_hash(raw, method='pbkdf2:sha256', salt_length=16),
                 ))
             db.session.commit()
             session.pop('totp_setup_secret', None)
+            # If this is a pending admin (no real session yet), create one now
+            if is_pending_admin:
+                session.pop('pending_admin_setup_id', None)
+                regenerate_session()
+                login_user(user, remember=True)
+                user.last_login = datetime.utcnow()
+                db.session.add(user)
+                db.session.commit()
             flash('2FA enabled! Save your recovery codes — they won\'t be shown again.', 'success')
-            audit_logger.info('TOTP enabled', extra={'username': current_user.username})
+            audit_logger.info('TOTP enabled', extra={'username': user.username})
             return render_template('totp_recovery_codes.html', codes=raw_codes)
         flash('Invalid code', 'error')
         return redirect(url_for('totp_setup'))
     secret = pyotp.random_base32()
     session['totp_setup_secret'] = secret
     totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(current_user.email, issuer_name="Svyaz")
+    provisioning_uri = totp.provisioning_uri(user.email, issuer_name="Svyaz")
     qr = qrcode.make(provisioning_uri)
     buf = io.BytesIO()
     qr.save(buf, format='PNG')
@@ -979,10 +1003,10 @@ def login():
         if user and check_password_hash(user.password_hash, password):
             audit_logger.info('Login password OK', extra={'username': username, 'ip': real_ip})
             regenerate_session()
-            # Enforce 2FA for admins
+            # Enforce 2FA for admins — do NOT create a real session yet
             if user.is_admin and not user.totp_enabled:
                 flash('Admins must enable 2FA. Please set it up.', 'warning')
-                login_user(user, remember=False)
+                session['pending_admin_setup_id'] = user.id
                 return redirect(url_for('totp_setup'))
             if user.totp_enabled:
                 session['totp_user_id'] = user.id
