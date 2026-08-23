@@ -1,71 +1,180 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Email Code — Svyaz</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        .code-hint { color: var(--text2); font-size: 0.92rem; margin: 0.5rem 0 1rem; }
-        .code-hint b { color: var(--text); }
-        .resend-row { margin-top: 0.9rem; font-size: 0.88rem; color: var(--text2); }
-        .link-btn { background: none; border: none; color: var(--primary); cursor: pointer;
-                    font-weight: 600; font-size: 0.88rem; padding: 0; }
-        .link-btn[disabled] { color: var(--text3); cursor: not-allowed; }
-    </style>
-</head>
-<body>
-    <div class="auth-container">
-        <h1><i class="fas fa-envelope-open-text"></i> Email Verification</h1>
-        {% if confirming %}
-        <p class="code-hint">Welcome! Confirm your email <b>{{ masked_email }}</b> to activate your account.<br>The code expires in 10 minutes.</p>
-        {% else %}
-        <p class="code-hint">We sent a 6-digit code to <b>{{ masked_email }}</b>.<br>It expires in 10 minutes.</p>
-        {% endif %}
+{% extends "base.html" %}
+{% block title %}Email Code — DevConnect{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+    <div class="auth-card" style="max-width:420px">
+        <div class="auth-logo">
+            <div class="auth-logo-text"><i class="fas fa-link"></i> DevConnect</div>
+        </div>
+
+        <div style="text-align:center">
+            <div class="code-icon"><i class="fas {% if confirming %}fa-envelope-circle-check{% else %}fa-envelope-open-text{% endif %}"></i></div>
+            <h2 class="auth-title">{% if confirming %}Подтвердите почту{% else %}Двухфакторный вход{% endif %}</h2>
+            <p class="auth-sub">
+                {% if confirming %}Мы отправили код подтверждения на{% else %}Код отправлен на{% endif %}
+                <b style="color:var(--text)">{{ masked_email }}</b>
+            </p>
+        </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% for category, message in messages %}
-                <p style="color:#ef4444;font-weight:600;margin:0.4rem 0">{{ message }}</p>
+                <div class="code-flash code-flash-{{ category }}">
+                    <i class="fas {% if category == 'error' %}fa-circle-exclamation{% elif category == 'success' %}fa-circle-check{% else %}fa-circle-info{% endif %}"></i>
+                    {{ message }}
+                </div>
             {% endfor %}
         {% endwith %}
 
-        <form method="POST">
+        <form method="POST" id="otpForm">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="form-group">
-                <input type="text" name="code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" required autofocus
-                       style="letter-spacing:0.5em;text-align:center;font-size:1.3rem;font-weight:700">
+            <input type="hidden" name="code" id="codeValue" disabled>
+            <div class="otp-row" id="otpRow">
+                {% for _ in range(6) %}
+                <input class="otp-box" type="text" inputmode="numeric" autocomplete="one-time-code"
+                       maxlength="1" pattern="[0-9]" aria-label="digit {{ loop.index }}">
+                {% endfor %}
             </div>
-            <button type="submit" class="btn btn-primary">Verify code</button>
+            <noscript>
+                <div class="form-group">
+                    <input type="text" name="code" class="form-control" placeholder="000000"
+                           maxlength="6" pattern="[0-9]{6}" required
+                           style="letter-spacing:0.5em;text-align:center;font-size:1.25rem;font-weight:700">
+                </div>
+            </noscript>
+            <button type="submit" class="btn btn-primary w-100" style="margin-top:1rem">
+                <i class="fas fa-shield-halved"></i> Подтвердить
+            </button>
         </form>
 
         <div class="resend-row">
-            Didn't get the code?
+            <span id="resendHint">Можно повторно отправить через</span>
+            <b id="cooldownNum" style="color:var(--primary)">{{ cooldown }}с</b>
             <form method="POST" action="/login/email-code/resend" style="display:inline">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="link-btn" id="resendBtn" {% if cooldown > 0 %}disabled{% endif %}>Resend code</button>
+                <button type="submit" class="link-btn" id="resendBtn"
+                        {% if cooldown > 0 %}disabled{% endif %}>
+                    <i class="fas fa-rotate-right"></i> Отправить снова
+                </button>
             </form>
-            {% if cooldown > 0 %}<span id="cooldownHint">(wait {{ cooldown }}s)</span>{% endif %}
         </div>
     </div>
+</div>
 
-    {% if cooldown > 0 %}
-    <script nonce="{{ csp_nonce() }}">
-    (function () {
-        let left = {{ cooldown }};
-        const btn = document.getElementById('resendBtn');
-        const hint = document.getElementById('cooldownHint');
-        const t = setInterval(function () {
-            left -= 1;
-            if (left <= 0) {
-                clearInterval(t);
-                btn.disabled = false;
-                if (hint) hint.remove();
-            } else if (hint) {
-                hint.textContent = '(wait ' + left + 's)';
+<style>
+.code-icon {
+    width:78px;height:78px;margin:0 auto 1.1rem;border-radius:50%;
+    background:rgba(0,212,255,.10); color:var(--primary);
+    display:flex;align-items:center;justify-content:center;font-size:2rem;
+    animation:codePulse 2.4s ease-in-out infinite;
+}
+@keyframes codePulse {
+    0%,100% { transform:scale(1); box-shadow:0 0 0 0 var(--primary-glow); }
+    50%     { transform:scale(1.05); box-shadow:0 0 0 16px rgba(0,212,255,0); }
+}
+.code-flash {
+    display:flex;align-items:center;gap:.5rem;
+    font-size:.88rem;font-weight:600;border-radius:10px;
+    padding:.65rem .9rem;margin-bottom:.9rem;
+}
+.code-flash-error   { background:rgba(239,68,68,.12);  color:#f87171; border:1px solid rgba(239,68,68,.3); }
+.code-flash-success { background:rgba(34,197,94,.12);  color:#4ade80; border:1px solid rgba(34,197,94,.3); }
+.code-flash-info,
+.code-flash-message { background:rgba(0,212,255,.10);  color:var(--primary); border:1px solid rgba(0,212,255,.3); }
+
+.otp-row { display:flex; gap:.55rem; justify-content:center; direction:ltr; }
+.otp-box {
+    width:48px;height:58px;text-align:center;
+    font-size:1.5rem;font-weight:800;color:var(--text);
+    background:var(--bg2);border:2px solid var(--border);border-radius:12px;
+    outline:none;transition:border-color .15s, box-shadow .15s, transform .15s;
+    caret-color:var(--primary);
+}
+.otp-box:focus {
+    border-color:var(--primary);
+    box-shadow:0 0 0 4px var(--primary-glow);
+    transform:translateY(-2px);
+}
+.otp-box.filled { border-color:var(--primary-dark); }
+
+.resend-row {
+    margin-top:1.15rem;text-align:center;font-size:.88rem;color:var(--text2);
+    display:flex;gap:.4rem;justify-content:center;align-items:center;flex-wrap:wrap;
+}
+.link-btn { background:none;border:none;color:var(--primary);cursor:pointer;
+    font-weight:700;font-size:.88rem;padding:0;transition:opacity .15s; }
+.link-btn:hover:not([disabled]) { text-decoration:underline; }
+.link-btn[disabled] { color:var(--text3);cursor:not-allowed; }
+</style>
+
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    /* ---- OTP boxes: auto-advance, backspace, paste, auto-submit ---- */
+    const boxes = Array.from(document.querySelectorAll('.otp-box'));
+    const hidden = document.getElementById('codeValue');
+    const form = document.getElementById('otpForm');
+    if (!boxes.length) return;
+
+    function value() { return boxes.map(b => b.value).join(''); }
+
+    function refresh() {
+        boxes.forEach(b => b.classList.toggle('filled', !!b.value));
+        hidden.value = value();
+        hidden.disabled = false;
+    }
+
+    function focusAt(i) {
+        const b = boxes[Math.max(0, Math.min(boxes.length - 1, i))];
+        if (b) b.focus();
+    }
+
+    boxes.forEach((box, i) => {
+        box.addEventListener('input', () => {
+            box.value = box.value.replace(/\D/g, '').slice(-1);
+            refresh();
+            if (box.value && i < boxes.length - 1) focusAt(i + 1);
+            if (value().length === boxes.length) {
+                setTimeout(() => {
+                    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+                }, 180);
             }
-        }, 1000);
-    })();
-    </script>
-    {% endif %}
-</body>
-</html>
+        });
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !box.value && i > 0) focusAt(i - 1);
+            if (e.key === 'ArrowLeft') focusAt(i - 1);
+            if (e.key === 'ArrowRight') focusAt(i + 1);
+        });
+        box.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+            digits.split('').forEach((d, k) => { if (boxes[k]) boxes[k].value = d; });
+            refresh();
+            focusAt(Math.min(digits.length, boxes.length - 1));
+            if (digits.length === boxes.length) {
+                setTimeout(() => {
+                    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+                }, 180);
+            }
+        });
+    });
+
+    boxes[0].focus();
+
+    /* ---- Resend cooldown countdown ---- */
+    let left = {{ cooldown }};
+    const btn = document.getElementById('resendBtn');
+    const num = document.getElementById('cooldownNum');
+    const hint = document.getElementById('resendHint');
+    const t = setInterval(() => {
+        left -= 1;
+        if (left <= 0) {
+            clearInterval(t);
+            btn.disabled = false;
+            if (num) num.textContent = '';
+            if (hint) hint.textContent = 'Не пришёл код?';
+        } else if (num) {
+            num.textContent = left + 'с';
+        }
+    }, 1000);
+})();
+</script>
+{% endblock %}

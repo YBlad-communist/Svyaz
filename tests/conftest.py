@@ -142,7 +142,7 @@ def login(client, username, password):
         'username': username, 'password': password, '_csrf_token': CSRF_TOKEN,
     }, follow_redirects=True)
     # Mandatory email 2FA: if we landed on the code page, complete it.
-    if b'Verify code' in rv.data and 'email_2fa_user_id' in _session(client):
+    if b'otp-row' in rv.data and 'email_2fa_user_id' in _session(client):
         setup_csrf(client)
         rv = client.post('/login/email-code', data={
             'code': last_login_code(), '_csrf_token': CSRF_TOKEN,

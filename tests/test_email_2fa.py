@@ -36,6 +36,17 @@ class TestMandatoryEmail2FA:
         # Prove the gate really fired: exactly one code email was sent
         assert len(SENT_EMAILS) == 1
 
+    def test_gate_page_renders_otp_ui(self, client, emma):
+        """The confirmation page renders the styled 6-box OTP interface."""
+        setup_csrf(client)
+        rv = client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        html = rv.data.decode('utf-8')
+        assert html.count('class="otp-box"') == 6
+        assert 'otp-row' in html
+        assert 'e***@test.com' in html  # masked address on screen
+
     def test_admin_same_flow_no_totp(self, client, admin):
         """Admins log in via the same email-code flow (no TOTP anywhere)."""
         rv = login(client, 'boss', 'bossypass123')
