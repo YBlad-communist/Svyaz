@@ -194,56 +194,87 @@ except redis.ConnectionError:
 except Exception:
     logger.exception('Redis connection error')
 
-# In-memory fallback for brute-force tracking when Redis is down
-_failed_attempts = {}  # ip -> (count, first_attempt_timestamp)
+# In-memory fallback for brute-force tracking when Redis is down.
+# Keyed by f"{ip}:{attempted_username}": one person's failed logins must not
+# lock out unrelated accounts sharing the same IP (NAT/CGNAT/office/VPN).
+_failed_attempts = {}  # lockout_key -> (count, first_attempt_timestamp)
 LOCKOUT_WINDOW_SECONDS = 900
 LOCKOUT_MAX_ATTEMPTS = 5
 
 
-def _memory_failed_attempts_get(ip):
-    entry = _failed_attempts.get(ip)
+def _lockout_key(ip, username):
+    """Composite brute-force key: per-IP AND per attempted account name."""
+    safe_user = (username or '').strip().lower()[:64] or '-'
+    return f"{ip}:{safe_user}"
+
+
+def _memory_failed_attempts_get(key):
+    entry = _failed_attempts.get(key)
     if not entry:
         return 0
     count, ts = entry
     if time.time() - ts > LOCKOUT_WINDOW_SECONDS:
-        _failed_attempts.pop(ip, None)
+        _failed_attempts.pop(key, None)
         return 0
     return count
 
 
-def _memory_failed_attempts_incr(ip):
-    entry = _failed_attempts.get(ip)
+def _memory_failed_attempts_incr(key):
+    entry = _failed_attempts.get(key)
     if entry and time.time() - entry[1] <= LOCKOUT_WINDOW_SECONDS:
-        _failed_attempts[ip] = (entry[0] + 1, entry[1])
+        _failed_attempts[key] = (entry[0] + 1, entry[1])
     else:
-        _failed_attempts[ip] = (1, time.time())
-    return _failed_attempts[ip][0]
+        _failed_attempts[key] = (1, time.time())
+    return _failed_attempts[key][0]
 
 
-def _memory_failed_attempts_delete(ip):
-    _failed_attempts.pop(ip, None)
+def _memory_failed_attempts_delete(key):
+    _failed_attempts.pop(key, None)
 
 
-def _lockout_remaining_seconds(ip):
+def _lockout_remaining_seconds(key):
     """Seconds left in the brute-force lockout window; 0 when not locked.
     Locked only when failed attempts reached LOCKOUT_MAX_ATTEMPTS."""
     if redis_available:
         try:
-            failed = redis_client.get(f"failed_attempts:{ip}")
+            failed = redis_client.get(f"failed_attempts:{key}")
             if not failed or int(failed) < LOCKOUT_MAX_ATTEMPTS:
                 return 0
-            ttl = redis_client.ttl(f"failed_attempts:{ip}")
+            ttl = redis_client.ttl(f"failed_attempts:{key}")
             return max(0, int(ttl)) if ttl and ttl > 0 else 0
         except Exception:
-            logger.warning('Failed to read lockout TTL for %s', ip)
+            logger.warning('Failed to read lockout TTL for %s', key)
             return 0
-    entry = _failed_attempts.get(ip)
+    entry = _failed_attempts.get(key)
     if not entry:
         return 0
     count, ts = entry
     if count < LOCKOUT_MAX_ATTEMPTS:
         return 0
     return max(0, LOCKOUT_WINDOW_SECONDS - int(time.time() - ts))
+
+
+def _lockout_gate(key):
+    """Return a 429 response while `key` is locked out, else None."""
+    retry_after = _lockout_remaining_seconds(key)
+    if retry_after <= 0:
+        return None
+    logger.warning('Lockout %s (%ss remaining)', key, retry_after)
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({'error': 'Too many attempts. Try again later.', 'retry_after': retry_after}), 429
+    return render_template('login.html', lockout_seconds=retry_after), 429
+
+
+def _clear_lockout(ip, username):
+    """Reset the failure counter after a successful authentication."""
+    key = _lockout_key(ip, username)
+    if redis_available:
+        try:
+            redis_client.delete(f"failed_attempts:{key}")
+        except Exception:
+            logger.warning('Failed to clear failed attempts for %s', key)
+    else:
+        _memory_failed_attempts_delete(key)
 
 
 def regenerate_session():
@@ -471,19 +502,10 @@ def before_request():
         current_user.last_activity = datetime.utcnow()
         db.session.add(current_user)
         db.session.flush()
-    real_ip = get_real_ip()
-    # Never block static assets — the lockout page needs its CSS/JS to render
-    if request.path.startswith(app.static_url_path or '/static'):
-        return None
-    retry_after = _lockout_remaining_seconds(real_ip)
-    if retry_after > 0:
-        logger.warning('Lockout IP %s (%ss remaining)', real_ip, retry_after)
-        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'error': 'Too many attempts. Try again later.', 'retry_after': retry_after}), 429
-        # Render the login page directly. Redirecting to /login would loop forever,
-        # because /login itself is blocked by this very hook.
-        return render_template('login.html', lockout_seconds=retry_after), 429
-    return None
+    # NOTE: brute-force lockout is intentionally NOT enforced here.
+    # A global check turned every failed login into a site-wide DoS for
+    # everyone behind the same IP (NAT/CGNAT), including authenticated
+    # users. The gate lives inside POST /login and POST /totp/verify only.
 
 
 @app.teardown_appcontext
@@ -564,6 +586,11 @@ def totp_verify():
     if not user or not user.totp_enabled:
         return redirect(url_for('login'))
     if request.method == 'POST':
+        real_ip = get_real_ip()
+        # Brute-force gate scoped to this account + IP
+        resp = _lockout_gate(_lockout_key(real_ip, user.username))
+        if resp:
+            return resp
         code = request.form.get('code', '').strip()
         totp = pyotp.TOTP(user.totp_secret)
         if totp.verify(code, valid_window=1):
@@ -573,6 +600,7 @@ def totp_verify():
             user.last_login = datetime.utcnow()
             db.session.add(user)
             db.session.commit()
+            _clear_lockout(real_ip, user.username)
             flash('Welcome!', 'success')
             return redirect(url_for('feed'))
         # Check recovery codes
@@ -590,8 +618,18 @@ def totp_verify():
                 user.last_login = datetime.utcnow()
                 db.session.add(user)
                 db.session.commit()
+                _clear_lockout(real_ip, user.username)
                 flash('Recovery code used. Please set up a new 2FA device.', 'warning')
                 return redirect(url_for('totp_setup'))
+        lock_key = _lockout_key(real_ip, user.username)
+        if redis_available:
+            try:
+                redis_client.incr(f"failed_attempts:{lock_key}")
+                redis_client.expire(f"failed_attempts:{lock_key}", LOCKOUT_WINDOW_SECONDS)
+            except Exception:
+                logger.warning('Failed to track failed attempts for key %s', lock_key)
+        else:
+            _memory_failed_attempts_incr(lock_key)
         flash('Invalid 2FA code', 'error')
         audit_logger.warning('TOTP failed', extra={'user_id': user.id, 'ip': get_real_ip()})
     return render_template('totp_verify.html')
@@ -1013,6 +1051,11 @@ def login():
         password = request.form.get('password', '')
         real_ip = get_real_ip()
 
+        # Brute-force gate: only this IP's attempts for THIS account are locked.
+        resp = _lockout_gate(_lockout_key(real_ip, username))
+        if resp:
+            return resp
+
         user = User.query.filter_by(username=username, is_deleted=False).first()
         if user and user.is_blocked:
             audit_logger.info('Login attempt on blocked account', extra={'username': username, 'ip': real_ip})
@@ -1034,29 +1077,24 @@ def login():
             user.last_login = datetime.utcnow()
             db.session.add(user)
             db.session.commit()
-            if redis_available:
-                try:
-                    redis_client.delete(f"failed_attempts:{real_ip}")
-                except Exception:
-                    logger.warning('Failed to clear failed attempts for %s', real_ip)
-            else:
-                _memory_failed_attempts_delete(real_ip)
+            _clear_lockout(real_ip, username)
             flash('Welcome!', 'success')
             return redirect(url_for('feed'))
         else:
             audit_logger.info('Login failed', extra={'username': username, 'ip': real_ip})
+            lock_key = _lockout_key(real_ip, username)
             if redis_available:
                 try:
-                    failed = redis_client.incr(f"failed_attempts:{real_ip}")
-                    redis_client.expire(f"failed_attempts:{real_ip}", 900)
-                    if int(failed) >= 5:
-                        audit_logger.warning('Brute-force threshold reached', extra={'ip': real_ip, 'attempts': failed})
+                    failed = redis_client.incr(f"failed_attempts:{lock_key}")
+                    redis_client.expire(f"failed_attempts:{lock_key}", LOCKOUT_WINDOW_SECONDS)
+                    if int(failed) >= LOCKOUT_MAX_ATTEMPTS:
+                        audit_logger.warning('Brute-force threshold reached', extra={'key': lock_key, 'attempts': failed})
                 except Exception:
-                    logger.warning('Failed to track failed attempts for IP %s', real_ip)
+                    logger.warning('Failed to track failed attempts for key %s', lock_key)
             else:
-                failed = _memory_failed_attempts_incr(real_ip)
-                if failed >= 5:
-                    audit_logger.warning('Brute-force threshold reached (memory)', extra={'ip': real_ip, 'attempts': failed})
+                failed = _memory_failed_attempts_incr(lock_key)
+                if failed >= LOCKOUT_MAX_ATTEMPTS:
+                    audit_logger.warning('Brute-force threshold reached (memory)', extra={'key': lock_key, 'attempts': failed})
             flash('Invalid username or password', 'error')
     return render_template('login.html')
 

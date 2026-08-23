@@ -1,6 +1,6 @@
 import time
 import pytest
-from app import app, db, _failed_attempts
+from app import app, db, _failed_attempts, _lockout_key
 from module import User
 from conftest import login, setup_csrf, CSRF_TOKEN
 
@@ -21,83 +21,130 @@ def victim():
     return u
 
 
-def _fail_login(client, n=1):
+@pytest.fixture
+def neighbor():
+    u = User(username='bob', email='bob@test.com', role='default')
+    u.set_password('bobpass123')
+    db.session.add(u)
+    db.session.commit()
+    return u
+
+
+def _fail_login(client, username='vic', n=1):
     for _ in range(n):
         setup_csrf(client)
         client.post('/login', data={
-            'username': 'vic', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
+            'username': username, 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
         })
 
 
-def _trigger_lockout(client):
-    _fail_login(client, 5)
+class TestLockoutKey:
+    def test_key_is_composite_and_normalized(self):
+        assert _lockout_key('1.2.3.4', 'Alice') == _lockout_key('1.2.3.4', '  alice ')
+        assert _lockout_key('1.2.3.4', 'alice') != _lockout_key('5.6.7.8', 'alice')
+        assert _lockout_key('1.2.3.4', None).endswith(':-')
 
 
-class TestLockoutScreen:
+class TestScopedLockout:
 
     def test_no_lockout_before_threshold(self, client, victim):
-        """Fewer than 5 failures — normal login page (200)."""
-        _fail_login(client, 4)
-        rv = client.get('/login')
+        """Fewer than 5 failures under one account — POST still processed normally."""
+        _fail_login(client, 'vic', 4)
+        setup_csrf(client)
+        rv = client.post('/login', data={
+            'username': 'vic', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
+        })
         assert rv.status_code == 200
         assert b'lockClock' not in rv.data
 
-    def test_lockout_screen_after_5_failures(self, client, victim):
-        """After 5 failures GET /login renders the lockout panel with a countdown."""
-        _trigger_lockout(client)
-        rv = client.get('/login')
-        assert rv.status_code == 429
-        assert b'lockClock' in rv.data
-        assert b'lockout-panel' in rv.data
-
-    def test_no_redirect_loop_when_locked(self, client, victim):
-        """Locked /login must NOT answer with a redirect to itself."""
-        _trigger_lockout(client)
-        rv = client.get('/login')
-        assert rv.status_code != 302
-
-    def test_post_login_blocked_while_locked(self, client, victim):
-        """Even the correct password is rejected while locked out."""
-        _fail_login(client, 3)
-        _trigger_lockout(client)
+    def test_lockout_blocks_after_5_failures(self, client, victim):
+        """After 5 failed attempts for an account, its POST /login gets 429 + countdown."""
+        _fail_login(client, 'vic', 5)
+        setup_csrf(client)
         rv = client.post('/login', data={
-            'username': 'vic', 'password': 'rightpass123', '_csrf_token': CSRF_TOKEN,
+            'username': 'vic', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
         })
         assert rv.status_code == 429
+        assert b'lockClock' in rv.data
 
-    def test_json_request_gets_retry_after(self, client, victim):
-        """JSON/AJAX requests get 429 with retry_after seconds."""
-        _trigger_lockout(client)
-        rv = client.get('/feed', headers={'X-Requested-With': 'XMLHttpRequest'})
+    def test_other_username_same_ip_not_blocked(self, client, victim, neighbor):
+        """Locking 'vic' from this IP must NOT block 'bob' from the same IP."""
+        _fail_login(client, 'vic', 5)
+        rv = login(client, 'bob', 'bobpass123')
+        assert rv.status_code == 200
+        feed = client.get('/feed')
+        assert feed.status_code == 200
+
+    def test_json_xhr_gets_retry_after(self, client, victim):
+        """AJAX login attempts get JSON 429 with retry_after seconds."""
+        _fail_login(client, 'vic', 5)
+        setup_csrf(client)
+        rv = client.post('/login', data={
+            'username': 'vic', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
+        }, headers={'X-Requested-With': 'XMLHttpRequest'})
         assert rv.status_code == 429
         data = rv.get_json()
-        assert 'retry_after' in data
         assert 0 < data['retry_after'] <= 900
 
-    def test_static_assets_not_blocked(self, client, victim):
-        """CSS/JS keep loading so the lockout page renders styled."""
-        _trigger_lockout(client)
-        rv = client.get('/static/css/style.css')
-        assert rv.status_code == 200
+    def test_authenticated_user_unaffected_by_lockout(self, client, victim, neighbor):
+        """A logged-in user keeps using the site even while their IP has an active login lockout."""
+        # Bob logs in fine
+        assert login(client, 'bob', 'bobpass123').status_code == 200
+        # Vic's account gets brute-locked from bob's IP (simulated)
+        _failed_attempts[_lockout_key('127.0.0.1', 'vic')] = (
+            5, time.time())
+        # Bob's session is untouched — all normal routes work
+        assert client.get('/feed').status_code == 200
+        assert client.get('/chats').status_code == 200
+        # Anonymous GETs are also not blocked globally anymore
+        anon_gate = client.get('/ideas')
+        assert anon_gate.status_code == 200
+        # But vic's own login attempts are still gated
+        setup_csrf(client)
+        rv = client.post('/logout', data={'_csrf_token': CSRF_TOKEN})
+        rv = client.post('/login', data={
+            'username': 'vic', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
+        }, headers={'X-Requested-With': 'XMLHttpRequest'})
+        assert rv.status_code == 429
+
+    def test_anon_feed_not_blocked_while_locked(self, client, victim):
+        """Lockout is not global: anonymous users still get normal route behaviour."""
+        _failed_attempts[_lockout_key('127.0.0.1', 'vic')] = (5, time.time())
+        rv = client.get('/feed')  # requires login -> normal redirect to /login
+        assert rv.status_code == 302
+        assert '/login' in rv.headers['Location']
+        assert client.get('/static/css/style.css').status_code == 200
 
     def test_unlock_after_window_expires(self, client, victim):
-        """Backdating the timestamp unlocks the IP."""
-        _trigger_lockout(client)
-        ip_entry = list(_failed_attempts.values())[0]
-        _failed_attempts[list(_failed_attempts.keys())[0]] = (
-            ip_entry[0], time.time() - 901)
-        rv = client.get('/login')
+        """Backdating the timestamp lifts the lockout."""
+        _fail_login(client, 'vic', 5)
+        key = list(_failed_attempts.keys())[0]
+        count, _ts = _failed_attempts[key]
+        _failed_attempts[key] = (count, time.time() - 901)
+        setup_csrf(client)
+        rv = client.post('/login', data={
+            'username': 'vic', 'password': 'rightpass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
         assert rv.status_code == 200
-        assert b'lockClock' not in rv.data
 
     def test_successful_login_clears_counter(self, client, victim):
-        """A successful login resets the failure counter."""
-        _fail_login(client, 3)
+        """A successful login resets that account's failure counter."""
+        _fail_login(client, 'vic', 3)
+        assert len(_failed_attempts) == 1
         login(client, 'vic', 'rightpass123')
         assert len(_failed_attempts) == 0
 
-    def test_nonexistent_user_also_counts(self, client):
-        """Failed logins for unknown usernames increment the counter too."""
-        _fail_login(client, 5)
-        rv = client.get('/login')
+    def test_nonexistent_user_counts_isolated(self, client, victim):
+        """Unknown usernames get their own counter; existing accounts unaffected."""
+        _fail_login(client, 'ghost', 5)
+        setup_csrf(client)
+        rv = client.post('/login', data={
+            'username': 'ghost', 'password': 'x', '_csrf_token': CSRF_TOKEN,
+        }, headers={'X-Requested-With': 'XMLHttpRequest'})
         assert rv.status_code == 429
+        # vic was never attempted — not locked
+        setup_csrf(client)
+        rv = client.post('/login', data={
+            'username': 'vic', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
+        })
+        assert rv.status_code == 200
