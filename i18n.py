@@ -45,6 +45,9 @@ EN = {
     'login.username': "Username",
     'login.password': "Password",
     'login.no_account': "Don't have an account?",
+    'login.locked_title': "Too many login attempts",
+    'login.locked_sub': "For security reasons, sign-in is temporarily blocked.",
+    'login.locked_retry': "The page will refresh automatically when the timer hits zero.",
     # register.html
     'register.title': "Sign Up — DevConnect",
     'register.heading': "Create an account",
@@ -478,6 +481,9 @@ RU = {
     'login.username': "Имя пользователя",
     'login.password': "Пароль",
     'login.no_account': "Нет аккаунта?",
+    'login.locked_title': "Слишком много попыток входа",
+    'login.locked_sub': "В целях безопасности вход временно заблокирован.",
+    'login.locked_retry': "Страница обновится автоматически, когда таймер дойдёт до нуля.",
     # register.html
     'register.title': "Регистрация — DevConnect",
     'register.heading': "Создать аккаунт",

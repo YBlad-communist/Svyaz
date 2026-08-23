@@ -196,6 +196,8 @@ except Exception:
 
 # In-memory fallback for brute-force tracking when Redis is down
 _failed_attempts = {}  # ip -> (count, first_attempt_timestamp)
+LOCKOUT_WINDOW_SECONDS = 900
+LOCKOUT_MAX_ATTEMPTS = 5
 
 
 def _memory_failed_attempts_get(ip):
@@ -203,7 +205,7 @@ def _memory_failed_attempts_get(ip):
     if not entry:
         return 0
     count, ts = entry
-    if time.time() - ts > 900:
+    if time.time() - ts > LOCKOUT_WINDOW_SECONDS:
         _failed_attempts.pop(ip, None)
         return 0
     return count
@@ -211,7 +213,7 @@ def _memory_failed_attempts_get(ip):
 
 def _memory_failed_attempts_incr(ip):
     entry = _failed_attempts.get(ip)
-    if entry and time.time() - entry[1] <= 900:
+    if entry and time.time() - entry[1] <= LOCKOUT_WINDOW_SECONDS:
         _failed_attempts[ip] = (entry[0] + 1, entry[1])
     else:
         _failed_attempts[ip] = (1, time.time())
@@ -220,6 +222,28 @@ def _memory_failed_attempts_incr(ip):
 
 def _memory_failed_attempts_delete(ip):
     _failed_attempts.pop(ip, None)
+
+
+def _lockout_remaining_seconds(ip):
+    """Seconds left in the brute-force lockout window; 0 when not locked.
+    Locked only when failed attempts reached LOCKOUT_MAX_ATTEMPTS."""
+    if redis_available:
+        try:
+            failed = redis_client.get(f"failed_attempts:{ip}")
+            if not failed or int(failed) < LOCKOUT_MAX_ATTEMPTS:
+                return 0
+            ttl = redis_client.ttl(f"failed_attempts:{ip}")
+            return max(0, int(ttl)) if ttl and ttl > 0 else 0
+        except Exception:
+            logger.warning('Failed to read lockout TTL for %s', ip)
+            return 0
+    entry = _failed_attempts.get(ip)
+    if not entry:
+        return 0
+    count, ts = entry
+    if count < LOCKOUT_MAX_ATTEMPTS:
+        return 0
+    return max(0, LOCKOUT_WINDOW_SECONDS - int(time.time() - ts))
 
 
 def regenerate_session():
@@ -448,25 +472,18 @@ def before_request():
         db.session.add(current_user)
         db.session.flush()
     real_ip = get_real_ip()
-    if redis_available:
-        try:
-            failed = redis_client.get(f"failed_attempts:{real_ip}")
-            if failed and int(failed) >= 5:
-                logger.warning('Lockout IP %s (%s attempts)', real_ip, failed)
-                if request.is_json:
-                    return jsonify({'error': 'Too many attempts. Try again in 15 minutes.'}), 429
-                flash('Too many attempts. Try again later.', 'error')
-                return redirect(url_for('login'))
-        except Exception:
-            pass
-    else:
-        failed = _memory_failed_attempts_get(real_ip)
-        if failed >= 5:
-            logger.warning('Lockout IP %s (%s attempts, memory)', real_ip, failed)
-            if request.is_json:
-                return jsonify({'error': 'Too many attempts. Try again in 15 minutes.'}), 429
-            flash('Too many attempts. Try again later.', 'error')
-            return redirect(url_for('login'))
+    # Never block static assets — the lockout page needs its CSS/JS to render
+    if request.path.startswith(app.static_url_path or '/static'):
+        return None
+    retry_after = _lockout_remaining_seconds(real_ip)
+    if retry_after > 0:
+        logger.warning('Lockout IP %s (%ss remaining)', real_ip, retry_after)
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'error': 'Too many attempts. Try again later.', 'retry_after': retry_after}), 429
+        # Render the login page directly. Redirecting to /login would loop forever,
+        # because /login itself is blocked by this very hook.
+        return render_template('login.html', lockout_seconds=retry_after), 429
+    return None
 
 
 @app.teardown_appcontext
