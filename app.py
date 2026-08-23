@@ -67,7 +67,8 @@ from module import (User, Post, Like, Comment, Follow, Message, Notification, Ch
     IDEA_STATUSES, IDEA_STATUS_LABELS,
     Channel, ChannelPost, ChannelPostLike, ChannelPostComment, ChannelInvite,
     channel_members, validate_email, validate_username,
-    get_file_type, extract_and_link_hashtags, safe_save_file, Warning)
+    get_file_type, extract_and_link_hashtags, safe_save_file, Warning,
+    EmailLoginCode)
 
 
 # ============================================================
@@ -112,6 +113,23 @@ def _resolve_db_uri():
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'uploads'))
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Email delivery (email 2FA login codes). Configured via environment/.env.
+# Gmail example: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USE_TLS=1,
+# SMTP_PASSWORD = App Password (Google account -> Security -> 2FA -> App passwords)
+# ---------------------------------------------------------------------------
+SMTP_HOST = os.environ.get('SMTP_HOST', '')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+SMTP_FROM = os.environ.get('SMTP_FROM', SMTP_USER)
+SMTP_USE_TLS = os.environ.get('SMTP_USE_TLS', '1').lower() in ('1', 'true', 'yes', 'on')
+HAS_SMTP = bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD)
+
+EMAIL_CODE_TTL_SECONDS = 600        # code valid for 10 minutes
+EMAIL_CODE_MAX_ATTEMPTS = 5         # wrong entries allowed per code
+EMAIL_CODE_RESEND_COOLDOWN = 60     # seconds between sends
 ALLOWED_EXTENSIONS = {'png','jpg','jpeg','gif','webp','mp4','webm','ogg','mov','pdf','doc','docx','txt'}
 
 
@@ -275,6 +293,60 @@ def _clear_lockout(ip, username):
             logger.warning('Failed to clear failed attempts for %s', key)
     else:
         _memory_failed_attempts_delete(key)
+
+
+# ---------------------------------------------------------------------------
+# Email 2FA: one-time login codes
+# ---------------------------------------------------------------------------
+def _send_email(to_addr, subject, body):
+    """Send a plain-text email via the configured SMTP server."""
+    import smtplib
+    from email.mime.text import MIMEText
+    msg = MIMEText(body, 'plain', 'utf-8')
+    msg['From'] = SMTP_FROM
+    msg['To'] = to_addr
+    msg['Subject'] = subject
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+        if SMTP_USE_TLS:
+            server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_FROM, [to_addr], msg.as_string())
+
+
+def _mask_email(addr):
+    """user@example.com -> u***@example.com (safe to show on screen)."""
+    if not addr or '@' not in addr:
+        return addr or ''
+    local, _, domain = addr.partition('@')
+    return f"{local[:1]}***@{domain}"
+
+
+def _generate_and_send_email_code(user):
+    """Create a one-time 6-digit code for `user` and email it.
+    Previous unused codes are invalidated. Returns True on success."""
+    code = f"{secrets.randbelow(1000000):06d}"
+    EmailLoginCode.query.filter_by(user_id=user.id, is_used=False).update({'is_used': True})
+    db.session.add(EmailLoginCode(
+        user_id=user.id,
+        code_hash=generate_password_hash(code, method='pbkdf2:sha256', salt_length=16),
+        expires_at=datetime.utcnow() + timedelta(seconds=EMAIL_CODE_TTL_SECONDS),
+    ))
+    db.session.commit()
+    try:
+        _send_email(
+            user.email,
+            'DevConnect — your login code',
+            f"Hi {user.username},\n\n"
+            f"Your DevConnect login code is: {code}\n\n"
+            f"It expires in {EMAIL_CODE_TTL_SECONDS // 60} minutes "
+            f"and can be used only once.\n"
+            f"If you didn't request it, ignore this email.\n",
+        )
+        audit_logger.info('Email 2FA code sent', extra={'username': user.username})
+        return True
+    except Exception:
+        logger.exception('Failed to send 2FA email to %s', user.email)
+        return False
 
 
 def regenerate_session():
@@ -723,6 +795,101 @@ def totp_disable():
 
 
 # ---------------------------------------------------------------------------
+# Email 2FA: verify code / resend / enable-disable
+# ---------------------------------------------------------------------------
+@app.route('/login/email-code', methods=['GET', 'POST'])
+@limiter.limit("20 per hour")
+@csrf_required
+def email_code_verify():
+    uid = session.get('email_2fa_user_id')
+    if not uid:
+        return redirect(url_for('login'))
+    user = db.session.get(User, uid)
+    if not user or not user.email_2fa_enabled:
+        session.pop('email_2fa_user_id', None)
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        row = (EmailLoginCode.query.filter_by(user_id=user.id, is_used=False)
+               .order_by(EmailLoginCode.created_at.desc()).first())
+        if not row or row.expires_at < datetime.utcnow() or (row.attempts or 0) >= EMAIL_CODE_MAX_ATTEMPTS:
+            flash('This code has expired. Request a new one below.', 'error')
+            return redirect(url_for('email_code_verify'))
+        if check_password_hash(row.code_hash, code):
+            row.is_used = True
+            db.session.add(row)
+            session.pop('email_2fa_user_id', None)
+            session.pop('email_2fa_sent_at', None)
+            regenerate_session()
+            login_user(user, remember=True)
+            user.last_login = datetime.utcnow()
+            db.session.add(user)
+            db.session.commit()
+            _clear_lockout(get_real_ip(), user.username)
+            audit_logger.info('Login via email code OK', extra={'username': user.username})
+            flash('Welcome!', 'success')
+            return redirect(url_for('feed'))
+        row.attempts = (row.attempts or 0) + 1
+        db.session.add(row)
+        db.session.commit()
+        left = EMAIL_CODE_MAX_ATTEMPTS - row.attempts
+        flash(f'Invalid code. Attempts left: {left}', 'error')
+        audit_logger.warning('Email 2FA wrong code', extra={'user_id': user.id})
+    cooldown_left = max(0, EMAIL_CODE_RESEND_COOLDOWN - int(time.time() - session.get('email_2fa_sent_at', 0)))
+    return render_template('email_code_verify.html', masked_email=_mask_email(user.email), cooldown=cooldown_left)
+
+
+@app.route('/login/email-code/resend', methods=['POST'])
+@limiter.limit("3 per minute")
+@csrf_required
+def email_code_resend():
+    uid = session.get('email_2fa_user_id')
+    if not uid:
+        return redirect(url_for('login'))
+    user = db.session.get(User, uid)
+    if not user or not user.email_2fa_enabled:
+        session.pop('email_2fa_user_id', None)
+        return redirect(url_for('login'))
+    wait = EMAIL_CODE_RESEND_COOLDOWN - int(time.time() - session.get('email_2fa_sent_at', 0))
+    if wait > 0:
+        flash(f'Please wait {wait} more seconds before requesting a new code.', 'error')
+    elif _generate_and_send_email_code(user):
+        session['email_2fa_sent_at'] = time.time()
+        flash('A new code has been sent to your email.', 'success')
+    else:
+        flash('Could not send the email. Try again later.', 'error')
+    return redirect(url_for('email_code_verify'))
+
+
+@app.route('/settings/email-2fa', methods=['POST'])
+@login_required
+@csrf_required
+def email_2fa_toggle():
+    """Enable or disable email-based 2FA. Requires account password."""
+    if not HAS_SMTP:
+        flash('Email delivery is not configured on this server yet.', 'error')
+        return redirect(url_for('profile_edit'))
+    password = request.form.get('password', '')
+    if not password or not check_password_hash(current_user.password_hash, password):
+        flash('Password is required to change email 2FA settings', 'error')
+        return redirect(url_for('profile_edit'))
+    enable = request.form.get('enable') == '1'
+    if enable and not current_user.email:
+        flash('Add an email address to your account first.', 'error')
+        return redirect(url_for('profile_edit'))
+    current_user.email_2fa_enabled = enable
+    if not enable:
+        EmailLoginCode.query.filter_by(user_id=current_user.id, is_used=False).update({'is_used': True})
+    db.session.add(current_user)
+    db.session.commit()
+    state = 'enabled' if enable else 'disabled'
+    flash(f'Email 2FA {state}.', 'success')
+    audit_logger.info(f'Email 2FA {state}', extra={'username': current_user.username})
+    return redirect(url_for('profile_edit'))
+
+
+# ---------------------------------------------------------------------------
 # E2EE Key Exchange
 # ---------------------------------------------------------------------------
 @app.route('/api/e2ee/identity-key', methods=['GET', 'POST'])
@@ -1073,6 +1240,14 @@ def login():
             if user.totp_enabled:
                 session['totp_user_id'] = user.id
                 return redirect(url_for('totp_verify'))
+            if user.email_2fa_enabled:
+                session['email_2fa_user_id'] = user.id
+                session['email_2fa_sent_at'] = time.time()
+                if not _generate_and_send_email_code(user):
+                    session.pop('email_2fa_user_id', None)
+                    flash('Could not send the code email. Try again later.', 'error')
+                    return redirect(url_for('login'))
+                return redirect(url_for('email_code_verify'))
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
             db.session.add(user)
@@ -3299,6 +3474,13 @@ def init_db():
                 conn.execute(text("ALTER TABLE ideas ADD COLUMN status VARCHAR(20) DEFAULT 'open'"))
                 conn.commit()
                 logger.info('Added status column to ideas')
+        # Add email 2FA flag to users
+        user_cols = {col['name'] for col in inspector.get_columns('users')}
+        if 'email_2fa_enabled' not in user_cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN email_2fa_enabled BOOLEAN DEFAULT 0"))
+                conn.commit()
+                logger.info('Added email_2fa_enabled column to users')
         # Ensure any new models (warnings) exist on existing databases
         db.create_all()
         logger.info('Ensured new tables exist (db.create_all)')

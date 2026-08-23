@@ -119,6 +119,8 @@ class User(UserMixin, db.Model):
     # 2FA / TOTP
     totp_secret = db.Column(db.String(32), nullable=True)
     totp_enabled = db.Column(db.Boolean, default=False)
+    # Optional second factor: one-time codes delivered by email
+    email_2fa_enabled = db.Column(db.Boolean, default=False)
 
     # E2EE: identity keypair (X25519) — base64 encoded
     identity_public_key = db.Column(db.Text, nullable=True)
@@ -433,6 +435,20 @@ class RecoveryCode(db.Model):
     is_used = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     used_at = db.Column(db.DateTime, nullable=True)
+
+
+class EmailLoginCode(db.Model):
+    """One-time 6-digit login code delivered by email (email 2FA).
+    Only a hash of the code is stored; codes expire quickly and allow
+    a limited number of verification attempts."""
+    __tablename__ = 'email_login_codes'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    code_hash = db.Column(db.String(128), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    attempts = db.Column(db.Integer, default=0)
+    is_used = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 # ============================================================

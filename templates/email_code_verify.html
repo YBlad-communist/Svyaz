@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Code — Svyaz</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .code-hint { color: var(--text2); font-size: 0.92rem; margin: 0.5rem 0 1rem; }
+        .code-hint b { color: var(--text); }
+        .resend-row { margin-top: 0.9rem; font-size: 0.88rem; color: var(--text2); }
+        .link-btn { background: none; border: none; color: var(--primary); cursor: pointer;
+                    font-weight: 600; font-size: 0.88rem; padding: 0; }
+        .link-btn[disabled] { color: var(--text3); cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <h1><i class="fas fa-envelope-open-text"></i> Email Verification</h1>
+        <p class="code-hint">We sent a 6-digit code to <b>{{ masked_email }}</b>.<br>It expires in 10 minutes.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <p style="color:#ef4444;font-weight:600;margin:0.4rem 0">{{ message }}</p>
+            {% endfor %}
+        {% endwith %}
+
+        <form method="POST">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <input type="text" name="code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" required autofocus
+                       style="letter-spacing:0.5em;text-align:center;font-size:1.3rem;font-weight:700">
+            </div>
+            <button type="submit" class="btn btn-primary">Verify code</button>
+        </form>
+
+        <div class="resend-row">
+            Didn't get the code?
+            <form method="POST" action="/login/email-code/resend" style="display:inline">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="link-btn" id="resendBtn" {% if cooldown > 0 %}disabled{% endif %}>Resend code</button>
+            </form>
+            {% if cooldown > 0 %}<span id="cooldownHint">(wait {{ cooldown }}s)</span>{% endif %}
+        </div>
+    </div>
+
+    {% if cooldown > 0 %}
+    <script nonce="{{ csp_nonce() }}">
+    (function () {
+        let left = {{ cooldown }};
+        const btn = document.getElementById('resendBtn');
+        const hint = document.getElementById('cooldownHint');
+        const t = setInterval(function () {
+            left -= 1;
+            if (left <= 0) {
+                clearInterval(t);
+                btn.disabled = false;
+                if (hint) hint.remove();
+            } else if (hint) {
+                hint.textContent = '(wait ' + left + 's)';
+            }
+        }, 1000);
+    })();
+    </script>
+    {% endif %}
+</body>
+</html>
