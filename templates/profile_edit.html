@@ -72,43 +72,16 @@
 
     <div class="card" style="margin-top:1rem">
         <div class="card-header">
-            <i class="fas fa-shield-alt" style="color:#22c55e"></i> Security — Two-Factor Authentication
+            <i class="fas fa-shield-alt" style="color:#22c55e"></i> Security
         </div>
         <div style="padding:1.25rem;font-size:0.92rem">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0;border-bottom:1px solid var(--border)">
-                <div>
-                    <b>Authenticator app (TOTP)</b>
-                    <div style="color:var(--text2)">6-digit codes from Google Authenticator or similar</div>
-                </div>
-                {% if current_user.totp_enabled %}
-                    <span style="color:#22c55e;font-weight:700">ON</span>
-                {% else %}
-                    <a href="{{ url_for('totp_setup') }}" class="btn btn-secondary btn-sm">Enable</a>
-                {% endif %}
-            </div>
-
             <div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0">
                 <div>
-                    <b>Email codes</b>
-                    <div style="color:var(--text2)">One-time code sent to {{ current_user.email }} on each login</div>
+                    <b><i class="fas fa-envelope" style="color:var(--primary)"></i> Email verification codes</b>
+                    <div style="color:var(--text2)">Every login requires a one-time 6-digit code sent to {{ current_user.email }}. This is mandatory and cannot be disabled.</div>
                 </div>
-                {% if current_user.email_2fa_enabled %}
-                    <span style="color:#22c55e;font-weight:700">ON</span>
-                {% elif not current_user.email %}
-                    <span style="color:var(--text3)">no email</span>
-                {% endif %}
+                <span style="color:#22c55e;font-weight:700">ACTIVE</span>
             </div>
-
-            {% if current_user.email %}
-            <form method="POST" action="{{ url_for('email_2fa_toggle') }}" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="enable" value="{% if current_user.email_2fa_enabled %}0{% else %}1{% endif %}">
-                <input type="password" name="password" class="form-control" placeholder="Your password" required autocomplete="current-password" style="flex:1;min-width:180px">
-                <button type="submit" class="btn {% if current_user.email_2fa_enabled %}btn-danger{% else %}btn-primary{% endif %} btn-sm">
-                    {% if current_user.email_2fa_enabled %}Disable email codes{% else %}Enable email codes{% endif %}
-                </button>
-            </form>
-            {% endif %}
         </div>
     </div>
 

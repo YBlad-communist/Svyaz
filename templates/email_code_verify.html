@@ -17,7 +17,11 @@
 <body>
     <div class="auth-container">
         <h1><i class="fas fa-envelope-open-text"></i> Email Verification</h1>
+        {% if confirming %}
+        <p class="code-hint">Welcome! Confirm your email <b>{{ masked_email }}</b> to activate your account.<br>The code expires in 10 minutes.</p>
+        {% else %}
         <p class="code-hint">We sent a 6-digit code to <b>{{ masked_email }}</b>.<br>It expires in 10 minutes.</p>
+        {% endif %}
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% for category, message in messages %}

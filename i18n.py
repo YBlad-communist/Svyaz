@@ -217,16 +217,6 @@ EN = {
     'group.add_members': "Add members",
     'group.search_ph': "Find users...",
     'group.create_btn': "Create",
-    'group.not_found': "User not found",
-    # totp_recovery_codes.html
-    '2fa.title': "Recovery Codes",
-    '2fa.heading': "Store these recovery codes",
-    '2fa.save_warning': "Save these codes in a safe place!",
-    '2fa.once_warning': "They are shown only once and are needed to access your account.",
-    '2fa.store_hint': "Keep them secure and never share them.",
-    '2fa.locked_out': "If you lose them, you may be locked out of your account.",
-    '2fa.print': "Print",
-    '2fa.done_saved': "I've saved them",
     # ideas.html
     'ideas.title': "Ideas — DevConnect",
     'ideas.filters': "Filters",
@@ -653,16 +643,6 @@ RU = {
     'group.add_members': "Добавить участников",
     'group.search_ph': "Поиск пользователей...",
     'group.create_btn': "Создать",
-    'group.not_found': "Пользователь не найден",
-    # totp_recovery_codes.html
-    '2fa.title': "Резервные коды",
-    '2fa.heading': "Сохраните эти резервные коды",
-    '2fa.save_warning': "Сохраните эти коды в надёжном месте!",
-    '2fa.once_warning': "Они показываются только один раз и нужны для доступа к аккаунту.",
-    '2fa.store_hint': "Храните их безопасно и никому не сообщайте.",
-    '2fa.locked_out': "Если вы их потеряете, доступ к аккаунту может быть утерян.",
-    '2fa.print': "Печать",
-    '2fa.done_saved': "Я сохранил(а)",
     # ideas.html
     'ideas.title': "Идеи — DevConnect",
     'ideas.filters': "Фильтры",

@@ -114,13 +114,10 @@ class User(UserMixin, db.Model):
     deleted_at = db.Column(db.DateTime, nullable=True)
     github_username = db.Column(db.String(39), nullable=True)
     developer_role = db.Column(db.String(20), nullable=True)
-    verified = db.Column(db.Boolean, default=False)
+    verified = db.Column(db.Boolean, default=False)  # email confirmed
 
-    # 2FA / TOTP
-    totp_secret = db.Column(db.String(32), nullable=True)
-    totp_enabled = db.Column(db.Boolean, default=False)
-    # Optional second factor: one-time codes delivered by email
-    email_2fa_enabled = db.Column(db.Boolean, default=False)
+    # 2FA: one-time codes delivered by email — mandatory for every account.
+    # The code itself is never stored server-side, only its hash (EmailLoginCode).
 
     # E2EE: identity keypair (X25519) — base64 encoded
     identity_public_key = db.Column(db.Text, nullable=True)
@@ -146,9 +143,6 @@ class User(UserMixin, db.Model):
 
     # E2EE prekeys
     prekeys = db.relationship('PreKey', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-
-    # 2FA recovery codes
-    recovery_codes = db.relationship('RecoveryCode', backref='user', lazy='dynamic', cascade='all, delete-orphan')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
@@ -186,8 +180,6 @@ class User(UserMixin, db.Model):
         self.is_deleted = True
         self.deleted_at = datetime.utcnow()
         self.is_active = False
-        self.totp_secret = None
-        self.totp_enabled = False
         self.identity_public_key = None
         self.encrypted_backup_key = None
 
@@ -427,16 +419,6 @@ class Notification(db.Model):
 # ============================================================
 # 2FA Recovery Codes
 # ============================================================
-class RecoveryCode(db.Model):
-    __tablename__ = 'recovery_codes'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    code_hash = db.Column(db.String(128), nullable=False)
-    is_used = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    used_at = db.Column(db.DateTime, nullable=True)
-
-
 class EmailLoginCode(db.Model):
     """One-time 6-digit login code delivered by email (email 2FA).
     Only a hash of the code is stored; codes expire quickly and allow

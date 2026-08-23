@@ -577,7 +577,7 @@ def before_request():
     # NOTE: brute-force lockout is intentionally NOT enforced here.
     # A global check turned every failed login into a site-wide DoS for
     # everyone behind the same IP (NAT/CGNAT), including authenticated
-    # users. The gate lives inside POST /login and POST /totp/verify only.
+    # users. The gate lives inside POST /login only.
 
 
 @app.teardown_appcontext
@@ -633,169 +633,7 @@ def readiness():
 
 
 # ---------------------------------------------------------------------------
-# TOTP / 2FA
-# ---------------------------------------------------------------------------
-try:
-    import pyotp
-    import qrcode
-    from qrcode.image.pil import PilImage
-    HAS_TOTP = True
-except ImportError:
-    HAS_TOTP = False
-    logger.warning('pyotp/qrcode not installed — 2FA disabled')
-
-
-@app.route('/totp/verify', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")
-@csrf_required
-def totp_verify():
-    if not HAS_TOTP:
-        return '2FA not available', 503
-    user_id = session.get('totp_user_id')
-    if not user_id:
-        return redirect(url_for('login'))
-    user = db.session.get(User, user_id)
-    if not user or not user.totp_enabled:
-        return redirect(url_for('login'))
-    if request.method == 'POST':
-        real_ip = get_real_ip()
-        # Brute-force gate scoped to this account + IP
-        resp = _lockout_gate(_lockout_key(real_ip, user.username))
-        if resp:
-            return resp
-        code = request.form.get('code', '').strip()
-        totp = pyotp.TOTP(user.totp_secret)
-        if totp.verify(code, valid_window=1):
-            session.pop('totp_user_id', None)
-            regenerate_session()
-            login_user(user, remember=True)
-            user.last_login = datetime.utcnow()
-            db.session.add(user)
-            db.session.commit()
-            _clear_lockout(real_ip, user.username)
-            flash('Welcome!', 'success')
-            return redirect(url_for('feed'))
-        # Check recovery codes
-        from module import RecoveryCode
-        recovery = RecoveryCode.query.filter_by(user_id=user.id, is_used=False).all()
-        for rc in recovery:
-            if check_password_hash(rc.code_hash, code):
-                rc.is_used = True
-                rc.used_at = datetime.utcnow()
-                db.session.add(rc)
-                db.session.commit()
-                session.pop('totp_user_id', None)
-                regenerate_session()
-                login_user(user, remember=True)
-                user.last_login = datetime.utcnow()
-                db.session.add(user)
-                db.session.commit()
-                _clear_lockout(real_ip, user.username)
-                flash('Recovery code used. Please set up a new 2FA device.', 'warning')
-                return redirect(url_for('totp_setup'))
-        lock_key = _lockout_key(real_ip, user.username)
-        if redis_available:
-            try:
-                redis_client.incr(f"failed_attempts:{lock_key}")
-                redis_client.expire(f"failed_attempts:{lock_key}", LOCKOUT_WINDOW_SECONDS)
-            except Exception:
-                logger.warning('Failed to track failed attempts for key %s', lock_key)
-        else:
-            _memory_failed_attempts_incr(lock_key)
-        flash('Invalid 2FA code', 'error')
-        audit_logger.warning('TOTP failed', extra={'user_id': user.id, 'ip': get_real_ip()})
-    return render_template('totp_verify.html')
-
-
-@app.route('/totp/setup', methods=['GET', 'POST'])
-@csrf_required
-def totp_setup():
-    if not HAS_TOTP:
-        return '2FA not available', 503
-
-    # Resolve user: either from login_user (authenticated) or from pending_admin_setup_id
-    user = None
-    is_pending_admin = False
-    if current_user.is_authenticated:
-        user = current_user
-    else:
-        pending_id = session.get('pending_admin_setup_id')
-        if pending_id:
-            user = db.session.get(User, pending_id)
-            if not user:
-                session.pop('pending_admin_setup_id', None)
-                return redirect(url_for('login'))
-            is_pending_admin = True
-    if not user:
-        return redirect(url_for('login'))
-
-    if request.method == 'POST':
-        code = request.form.get('code', '').strip()
-        secret = session.get('totp_setup_secret')
-        if not secret:
-            flash('Session expired. Try again.', 'error')
-            return redirect(url_for('totp_setup'))
-        totp = pyotp.TOTP(secret)
-        if totp.verify(code, valid_window=1):
-            user.totp_secret = secret
-            user.totp_enabled = True
-            db.session.add(user)
-            # Generate 10 recovery codes
-            from module import RecoveryCode
-            RecoveryCode.query.filter_by(user_id=user.id).delete()
-            raw_codes = []
-            for _ in range(10):
-                raw = secrets.token_hex(8)
-                raw_codes.append(raw)
-                db.session.add(RecoveryCode(
-                    user_id=user.id,
-                    code_hash=generate_password_hash(raw, method='pbkdf2:sha256', salt_length=16),
-                ))
-            db.session.commit()
-            session.pop('totp_setup_secret', None)
-            # If this is a pending admin (no real session yet), create one now
-            if is_pending_admin:
-                session.pop('pending_admin_setup_id', None)
-                regenerate_session()
-                login_user(user, remember=True)
-                user.last_login = datetime.utcnow()
-                db.session.add(user)
-                db.session.commit()
-            flash('2FA enabled! Save your recovery codes — they won\'t be shown again.', 'success')
-            audit_logger.info('TOTP enabled', extra={'username': user.username})
-            return render_template('totp_recovery_codes.html', codes=raw_codes)
-        flash('Invalid code', 'error')
-        return redirect(url_for('totp_setup'))
-    secret = pyotp.random_base32()
-    session['totp_setup_secret'] = secret
-    totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(user.email, issuer_name="Svyaz")
-    qr = qrcode.make(provisioning_uri)
-    buf = io.BytesIO()
-    qr.save(buf, format='PNG')
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-    return render_template('totp_setup.html', secret=secret, qr_data=qr_b64)
-
-
-@app.route('/totp/disable', methods=['POST'])
-@login_required
-@csrf_required
-def totp_disable():
-    password = request.form.get('password', '')
-    if not password or not check_password_hash(current_user.password_hash, password):
-        flash('Password is required to disable 2FA', 'error')
-        return redirect(url_for('profile_edit'))
-    current_user.totp_secret = None
-    current_user.totp_enabled = False
-    db.session.add(current_user)
-    db.session.commit()
-    flash('2FA disabled', 'success')
-    audit_logger.info('TOTP disabled', extra={'username': current_user.username})
-    return redirect(url_for('profile_edit'))
-
-
-# ---------------------------------------------------------------------------
-# Email 2FA: verify code / resend / enable-disable
+# Email 2FA: verify code / resend
 # ---------------------------------------------------------------------------
 @app.route('/login/email-code', methods=['GET', 'POST'])
 @limiter.limit("20 per hour")
@@ -805,7 +643,7 @@ def email_code_verify():
     if not uid:
         return redirect(url_for('login'))
     user = db.session.get(User, uid)
-    if not user or not user.email_2fa_enabled:
+    if not user:
         session.pop('email_2fa_user_id', None)
         return redirect(url_for('login'))
 
@@ -824,6 +662,9 @@ def email_code_verify():
             regenerate_session()
             login_user(user, remember=True)
             user.last_login = datetime.utcnow()
+            if not user.verified:
+                user.verified = True
+                audit_logger.info('Email verified via login code', extra={'username': user.username})
             db.session.add(user)
             db.session.commit()
             _clear_lockout(get_real_ip(), user.username)
@@ -837,7 +678,8 @@ def email_code_verify():
         flash(f'Invalid code. Attempts left: {left}', 'error')
         audit_logger.warning('Email 2FA wrong code', extra={'user_id': user.id})
     cooldown_left = max(0, EMAIL_CODE_RESEND_COOLDOWN - int(time.time() - session.get('email_2fa_sent_at', 0)))
-    return render_template('email_code_verify.html', masked_email=_mask_email(user.email), cooldown=cooldown_left)
+    return render_template('email_code_verify.html', masked_email=_mask_email(user.email),
+                           cooldown=cooldown_left, confirming=not user.verified)
 
 
 @app.route('/login/email-code/resend', methods=['POST'])
@@ -848,7 +690,7 @@ def email_code_resend():
     if not uid:
         return redirect(url_for('login'))
     user = db.session.get(User, uid)
-    if not user or not user.email_2fa_enabled:
+    if not user:
         session.pop('email_2fa_user_id', None)
         return redirect(url_for('login'))
     wait = EMAIL_CODE_RESEND_COOLDOWN - int(time.time() - session.get('email_2fa_sent_at', 0))
@@ -860,33 +702,6 @@ def email_code_resend():
     else:
         flash('Could not send the email. Try again later.', 'error')
     return redirect(url_for('email_code_verify'))
-
-
-@app.route('/settings/email-2fa', methods=['POST'])
-@login_required
-@csrf_required
-def email_2fa_toggle():
-    """Enable or disable email-based 2FA. Requires account password."""
-    if not HAS_SMTP:
-        flash('Email delivery is not configured on this server yet.', 'error')
-        return redirect(url_for('profile_edit'))
-    password = request.form.get('password', '')
-    if not password or not check_password_hash(current_user.password_hash, password):
-        flash('Password is required to change email 2FA settings', 'error')
-        return redirect(url_for('profile_edit'))
-    enable = request.form.get('enable') == '1'
-    if enable and not current_user.email:
-        flash('Add an email address to your account first.', 'error')
-        return redirect(url_for('profile_edit'))
-    current_user.email_2fa_enabled = enable
-    if not enable:
-        EmailLoginCode.query.filter_by(user_id=current_user.id, is_used=False).update({'is_used': True})
-    db.session.add(current_user)
-    db.session.commit()
-    state = 'enabled' if enable else 'disabled'
-    flash(f'Email 2FA {state}.', 'success')
-    audit_logger.info(f'Email 2FA {state}', extra={'username': current_user.username})
-    return redirect(url_for('profile_edit'))
 
 
 # ---------------------------------------------------------------------------
@@ -1202,9 +1017,16 @@ def register():
                     role='default')
         db.session.add(user)
         db.session.commit()
-        login_user(user)
-        flash('Registration successful!', 'success')
-        return redirect(url_for('feed'))
+        audit_logger.info('New registration', extra={'username': username, 'ip': get_real_ip()})
+        # Email confirmation is mandatory: send a code before first login.
+        session['email_2fa_user_id'] = user.id
+        session['email_2fa_sent_at'] = time.time()
+        if not _generate_and_send_email_code(user):
+            session.pop('email_2fa_user_id', None)
+            flash('Account created, but we could not send the confirmation email. Try logging in later.', 'warning')
+            return redirect(url_for('login'))
+        flash('Almost done! We sent a confirmation code to your email.', 'info')
+        return redirect(url_for('email_code_verify'))
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -1232,29 +1054,16 @@ def login():
         if user and check_password_hash(user.password_hash, password):
             audit_logger.info('Login password OK', extra={'username': username, 'ip': real_ip})
             regenerate_session()
-            # Enforce 2FA for admins — do NOT create a real session yet
-            if user.is_admin and not user.totp_enabled:
-                flash('Admins must enable 2FA. Please set it up.', 'warning')
-                session['pending_admin_setup_id'] = user.id
-                return redirect(url_for('totp_setup'))
-            if user.totp_enabled:
-                session['totp_user_id'] = user.id
-                return redirect(url_for('totp_verify'))
-            if user.email_2fa_enabled:
-                session['email_2fa_user_id'] = user.id
-                session['email_2fa_sent_at'] = time.time()
-                if not _generate_and_send_email_code(user):
-                    session.pop('email_2fa_user_id', None)
-                    flash('Could not send the code email. Try again later.', 'error')
-                    return redirect(url_for('login'))
-                return redirect(url_for('email_code_verify'))
-            login_user(user, remember=True)
-            user.last_login = datetime.utcnow()
-            db.session.add(user)
-            db.session.commit()
-            _clear_lockout(real_ip, username)
-            flash('Welcome!', 'success')
-            return redirect(url_for('feed'))
+            # Mandatory email 2FA for everyone: send a one-time code.
+            session['email_2fa_user_id'] = user.id
+            session['email_2fa_sent_at'] = time.time()
+            if not _generate_and_send_email_code(user):
+                session.pop('email_2fa_user_id', None)
+                flash('Could not send the code email. Try again later.', 'error')
+                return redirect(url_for('login'))
+            if not user.verified:
+                flash('We sent a confirmation code to your email to verify your account.', 'info')
+            return redirect(url_for('email_code_verify'))
         else:
             audit_logger.info('Login failed', extra={'username': username, 'ip': real_ip})
             lock_key = _lockout_key(real_ip, username)
@@ -3474,13 +3283,6 @@ def init_db():
                 conn.execute(text("ALTER TABLE ideas ADD COLUMN status VARCHAR(20) DEFAULT 'open'"))
                 conn.commit()
                 logger.info('Added status column to ideas')
-        # Add email 2FA flag to users
-        user_cols = {col['name'] for col in inspector.get_columns('users')}
-        if 'email_2fa_enabled' not in user_cols:
-            with db.engine.connect() as conn:
-                conn.execute(text("ALTER TABLE users ADD COLUMN email_2fa_enabled BOOLEAN DEFAULT 0"))
-                conn.commit()
-                logger.info('Added email_2fa_enabled column to users')
         # Ensure any new models (warnings) exist on existing databases
         db.create_all()
         logger.info('Ensured new tables exist (db.create_all)')

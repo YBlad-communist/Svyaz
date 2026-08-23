@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import pytest
 import warnings
 from datetime import datetime, timedelta
@@ -16,8 +17,11 @@ pytestmark = pytest.mark.filterwarnings(
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-purposes-only-change-in-production')
 os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 os.environ['FLASK_ENV'] = 'testing'
+# Never let tests talk to a real SMTP server
+os.environ['SMTP_HOST'] = ''
 
 from app import app, db
+import app as _app_module
 from module import (
     User, Post, Comment, Like, Follow, Idea, Technology, Role,
     Channel, ChannelPost, ChannelPostLike, ChannelPostComment,
@@ -104,12 +108,54 @@ def setup_csrf(client):
     return CSRF_TOKEN
 
 
+# ---------------------------------------------------------------------------
+# Global SMTP mock: mandatory email 2FA means every login sends a code.
+# Capture the bodies instead of hitting a real server, and give tests a
+# one-call login() that transparently completes the code gate.
+# ---------------------------------------------------------------------------
+SENT_EMAILS = []
+
+
+@pytest.fixture(autouse=True)
+def _fake_smtp(monkeypatch):
+    SENT_EMAILS.clear()
+
+    def _capture(to_addr, subject, body):
+        SENT_EMAILS.append({'to': to_addr, 'subject': subject, 'body': body})
+        return True
+
+    monkeypatch.setattr(_app_module, '_send_email', _capture)
+    yield
+    SENT_EMAILS.clear()
+
+
+def last_login_code():
+    m = re.search(r'\b(\d{6})\b', SENT_EMAILS[-1]['body'])
+    assert m, f'no 6-digit code in email: {SENT_EMAILS[-1]!r}'
+    return m.group(1)
+
+
 def login(client, username, password):
     client.get('/login')
     setup_csrf(client)
-    return client.post('/login', data={
+    rv = client.post('/login', data={
         'username': username, 'password': password, '_csrf_token': CSRF_TOKEN,
     }, follow_redirects=True)
+    # Mandatory email 2FA: if we landed on the code page, complete it.
+    if b'Verify code' in rv.data and 'email_2fa_user_id' in _session(client):
+        setup_csrf(client)
+        rv = client.post('/login/email-code', data={
+            'code': last_login_code(), '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+    return rv
+
+
+def _session(client):
+    holder = {}
+    with client.session_transaction() as sess:
+        for k in sess.keys():
+            holder[k] = sess[k]
+    return holder
 
 
 def logout(client):

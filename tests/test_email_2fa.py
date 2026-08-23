@@ -1,126 +1,110 @@
-import re
 import time
 import pytest
 from datetime import datetime, timedelta
 
-import app as app_module
 from app import db
 from module import User, EmailLoginCode
-from conftest import login, logout, setup_csrf, CSRF_TOKEN
-
-
-@pytest.fixture(autouse=True)
-def fake_smtp(monkeypatch):
-    """Capture outgoing emails instead of really sending them."""
-    sent = []
-
-    def _capture(to_addr, subject, body):
-        sent.append({'to': to_addr, 'subject': subject, 'body': body})
-        return True
-
-    monkeypatch.setattr(app_module, '_send_email', _capture)
-    monkeypatch.setattr(app_module, 'HAS_SMTP', True)
-    return sent
-
-
-def _last_code(sent):
-    m = re.search(r'\b(\d{6})\b', sent[-1]['body'])
-    return m.group(1)
+from conftest import login, logout, setup_csrf, CSRF_TOKEN, SENT_EMAILS, last_login_code
 
 
 @pytest.fixture
 def emma():
     u = User(username='emma', email='emma@test.com', role='default')
     u.set_password('emmapass123')
+    u.verified = True
     db.session.add(u)
     db.session.commit()
     return u
 
 
-def _enable(client):
-    setup_csrf(client)
-    return client.post('/settings/email-2fa', data={
-        'enable': '1', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
-    })
+@pytest.fixture
+def admin():
+    u = User(username='boss', email='boss@test.com', role='admin', is_admin=True)
+    u.set_password('bossypass123')
+    u.verified = True
+    db.session.add(u)
+    db.session.commit()
+    return u
 
 
-class TestEmail2FA:
+class TestMandatoryEmail2FA:
 
-    def test_enable_requires_password(self, client, emma):
-        assert login(client, 'emma', 'emmapass123').status_code == 200
+    def test_login_requires_email_code(self, client, emma):
+        """Password alone never logs in: code page is shown instead."""
+        rv = login(client, 'emma', 'emmapass123')  # helper completes the gate
+        assert rv.status_code == 200
+        # Prove the gate really fired: exactly one code email was sent
+        assert len(SENT_EMAILS) == 1
+
+    def test_admin_same_flow_no_totp(self, client, admin):
+        """Admins log in via the same email-code flow (no TOTP anywhere)."""
+        rv = login(client, 'boss', 'bossypass123')
+        assert rv.status_code == 200
+        assert client.get('/feed').status_code == 200
+        assert len(SENT_EMAILS) >= 1
+
+    def test_wrong_code_does_not_log_in(self, client, emma):
         setup_csrf(client)
-        rv = client.post('/settings/email-2fa', data={
-            'enable': '1', 'password': 'wrongpass', '_csrf_token': CSRF_TOKEN,
-        })
-        assert rv.status_code == 302  # back to profile_edit with error flash
-        assert not emma.email_2fa_enabled
-
-    def test_enable_with_correct_password(self, client, emma, fake_smtp):
-        assert login(client, 'emma', 'emmapass123').status_code == 200
-        rv = _enable(client)
-        assert rv.status_code == 302
-        assert emma.email_2fa_enabled is True
-
-    def test_full_login_flow(self, client, emma, fake_smtp):
-        # Enable while logged in
-        login(client, 'emma', 'emmapass123')
-        _enable(client)
-
-        # Fresh login: password accepted but NOT logged in yet
-        logout(client)
-        rv = login(client, 'emma', 'emmapass123')
-        assert rv.status_code == 200  # landed on /login/email-code page
-        assert b'Verify code' in rv.data
-        with client.session_transaction() as sess:
-            assert sess.get('email_2fa_user_id') == emma.id
-
-        # Code was emailed
-        assert len(fake_smtp) == 1
-        assert fake_smtp[0]['to'] == 'emma@test.com'
-        code = _last_code(fake_smtp)
-
-        # Wrong code first
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
         setup_csrf(client)
-        rv = client.post('/login/email-code', data={'code': '000000', '_csrf_token': CSRF_TOKEN})
-        assert b'Invalid code' in rv.data or rv.status_code == 302
+        client.post('/login/email-code', data={'code': '000000', '_csrf_token': CSRF_TOKEN})
+        assert client.get('/feed').status_code == 302
 
-        # Correct code -> logged in
+    def test_correct_code_logs_in(self, client, emma):
+        setup_csrf(client)
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        code = last_login_code()
         setup_csrf(client)
         rv = client.post('/login/email-code', data={'code': code, '_csrf_token': CSRF_TOKEN},
                          follow_redirects=True)
         assert rv.status_code == 200
-        feed = client.get('/feed')
-        assert feed.status_code == 200
+        assert client.get('/feed').status_code == 200
 
-    def test_code_is_single_use(self, client, emma, fake_smtp):
-        login(client, 'emma', 'emmapass123')
-        _enable(client)
-        logout(client)
-        login(client, 'emma', 'emmapass123')
-        code = _last_code(fake_smtp)
+    def test_code_is_single_use(self, client, emma):
+        import re
 
+        def extract(body):
+            return re.search(r'\b(\d{6})\b', body).group(1)
+
+        # Gate #1: get and consume code A
         setup_csrf(client)
-        client.post('/login/email-code', data={'code': code, '_csrf_token': CSRF_TOKEN},
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        code_a = extract(SENT_EMAILS[-1]['body'])
+        setup_csrf(client)
+        client.post('/login/email-code', data={'code': code_a, '_csrf_token': CSRF_TOKEN},
                     follow_redirects=True)
-
-        # Second login sends a NEW code; old one must be rejected
+        assert client.get('/feed').status_code == 200
         logout(client)
-        fake_smtp.clear()
-        login(client, 'emma', 'emmapass123')
-        assert len(fake_smtp) == 1
+
+        # Gate #2: a NEW code is issued; old code A must be rejected
         setup_csrf(client)
-        rv = client.post('/login/email-code', data={'code': code, '_csrf_token': CSRF_TOKEN})
-        assert rv.status_code == 200  # still on verify page, not logged in
-        feed = client.get('/feed')
-        assert feed.status_code == 302
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        code_b = extract(SENT_EMAILS[-1]['body'])
 
-    def test_expired_code_rejected(self, client, emma, fake_smtp):
-        login(client, 'emma', 'emmapass123')
-        _enable(client)
-        logout(client)
-        login(client, 'emma', 'emmapass123')
-        code = _last_code(fake_smtp)
+        setup_csrf(client)
+        client.post('/login/email-code', data={'code': code_a, '_csrf_token': CSRF_TOKEN})
+        assert client.get('/feed').status_code == 302
 
+        # Code B still works
+        setup_csrf(client)
+        client.post('/login/email-code', data={'code': code_b, '_csrf_token': CSRF_TOKEN},
+                    follow_redirects=True)
+        assert client.get('/feed').status_code == 200
+
+    def test_expired_code_rejected(self, client, emma):
+        setup_csrf(client)
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        code = last_login_code()
         row = EmailLoginCode.query.order_by(EmailLoginCode.id.desc()).first()
         row.expires_at = datetime.utcnow() - timedelta(seconds=1)
         db.session.add(row)
@@ -132,48 +116,75 @@ class TestEmail2FA:
         assert b'expired' in rv.data
         assert client.get('/feed').status_code == 302
 
-    def test_resend_cooldown_then_new_code(self, client, emma, fake_smtp):
-        login(client, 'emma', 'emmapass123')
-        _enable(client)
-        logout(client)
-        login(client, 'emma', 'emmapass123')
-
-        # Immediate resend -> blocked by cooldown
+    def test_resend_cooldown_then_new_code(self, client, emma):
         setup_csrf(client)
-        rv = client.post('/login/email-code/resend', data={'_csrf_token': CSRF_TOKEN})
-        assert len(fake_smtp) == 1
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        assert len(SENT_EMAILS) == 1
 
-        # Simulate cooldown elapsed
+        # Immediate resend -> cooldown blocks it
+        setup_csrf(client)
+        client.post('/login/email-code/resend', data={'_csrf_token': CSRF_TOKEN})
+        assert len(SENT_EMAILS) == 1
+
+        # Cooldown elapsed -> new code arrives and works
         with client.session_transaction() as sess:
             sess['email_2fa_sent_at'] = time.time() - 120
         client.post('/login/email-code/resend', data={'_csrf_token': CSRF_TOKEN})
-        assert len(fake_smtp) == 2
+        assert len(SENT_EMAILS) == 2
+        code = last_login_code()
+        setup_csrf(client)
+        client.post('/login/email-code', data={'code': code, '_csrf_token': CSRF_TOKEN},
+                    follow_redirects=True)
+        assert client.get('/feed').status_code == 200
 
-        # New code works
-        code = _last_code(fake_smtp)
+
+class TestEmailConfirmationOnRegistration:
+
+    def _register(self, client, username='newbie'):
+        setup_csrf(client)
+        return client.post('/register', data={
+            'username': username, 'email': f'{username}@test.com',
+            'password': 'Str0ngPass!', '_csrf_token': CSRF_TOKEN,
+        })
+
+    def test_register_sends_confirmation_code(self, client):
+        rv = self._register(client)
+        assert rv.status_code == 302  # -> /login/email-code
+        assert len(SENT_EMAILS) == 1
+        assert SENT_EMAILS[0]['to'] == 'newbie@test.com'
+
+        user = User.query.filter_by(username='newbie').first()
+        assert user is not None
+        assert user.verified is False
+        assert client.get('/feed').status_code == 302
+
+    def test_confirming_code_verifies_and_logs_in(self, client):
+        self._register(client)
+        code = last_login_code()
         setup_csrf(client)
         rv = client.post('/login/email-code', data={'code': code, '_csrf_token': CSRF_TOKEN},
                          follow_redirects=True)
+        assert rv.status_code == 200
+
+        user = User.query.filter_by(username='newbie').first()
+        assert user.verified is True
         assert client.get('/feed').status_code == 200
 
-    def test_disable_restores_direct_login(self, client, emma, fake_smtp):
-        login(client, 'emma', 'emmapass123')
-        _enable(client)
-
-        setup_csrf(client)
-        client.post('/settings/email-2fa', data={
-            'enable': '0', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
-        })
-        assert emma.email_2fa_enabled is False
+    def test_unverified_cannot_skip_confirmation(self, client):
+        """Abandoning registration: later login still goes through confirmation."""
+        self._register(client, 'drifter')
 
         logout(client)
-        rv = login(client, 'emma', 'emmapass123')
-        assert client.get('/feed').status_code == 200  # straight in, no code asked
-        assert len(fake_smtp) == 0
-
-    def test_toggle_blocked_without_smtp(self, client, emma, fake_smtp, monkeypatch):
-        monkeypatch.setattr(app_module, 'HAS_SMTP', False)
-        login(client, 'emma', 'emmapass123')
-        rv = _enable(client)
-        assert rv.status_code == 302
-        assert not emma.email_2fa_enabled
+        setup_csrf(client)
+        client.post('/login', data={
+            'username': 'drifter', 'password': 'Str0ngPass!', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        code = last_login_code()
+        setup_csrf(client)
+        client.post('/login/email-code', data={'code': code, '_csrf_token': CSRF_TOKEN},
+                    follow_redirects=True)
+        user = User.query.filter_by(username='drifter').first()
+        assert user.verified is True
+        assert client.get('/feed').status_code == 200
