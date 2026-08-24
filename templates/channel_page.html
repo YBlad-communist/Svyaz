@@ -12,7 +12,7 @@
     <!-- Header -->
     <div class="card" style="margin-bottom:1rem;overflow:hidden">
         <div style="padding:1.5rem">
-            <div style="display:flex;align-items:flex-start;gap:1rem">
+            <div class="channel-header-flex" style="display:flex;align-items:flex-start;gap:1rem">
                 {% if channel.avatar_url %}
                 <img src="{{ channel.avatar_url }}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--surface2)">
                 {% else %}
@@ -30,13 +30,13 @@
                     {% if channel.description %}
                     <p style="color:var(--text2);margin:0.5rem 0 0;line-height:1.5">{{ channel.description }}</p>
                     {% endif %}
-                    <div style="display:flex;gap:1rem;margin-top:0.5rem;font-size:0.82rem;color:var(--text3)">
+                    <div class="channel-stats-row" style="display:flex;gap:1rem;margin-top:0.5rem;font-size:0.82rem;color:var(--text3)">
                         <span><i class="fas fa-users"></i> {{ t('search.members_count', count=channel.member_count()) }}</span>
                         <span><i class="fas fa-file-alt"></i> {{ t('channel.posts_count', count=channel.posts.count()) }}</span>
                         <span><i class="fas fa-calendar"></i> {{ channel.created_at.strftime('%d.%m.%Y') }}</span>
                     </div>
                 </div>
-                <div style="display:flex;gap:0.5rem;flex-shrink:0">
+                <div class="channel-header-actions" style="display:flex;gap:0.5rem;flex-shrink:0">
                     {% if is_member %}
                     <form method="POST" action="{{ url_for('channel_leave', channel_name=channel.name) }}">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

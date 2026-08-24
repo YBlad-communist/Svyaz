@@ -172,7 +172,7 @@
             {{ t('notif.header') }}
             {% set unread_total = notifications.items | selectattr('read', 'false') | list | length %}
         </div>
-        <div style="display:flex;align-items:center;gap:0.75rem">
+        <div class="notif-header-right" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
             {% if notifications.total %}
             <span style="font-size:0.82rem;color:var(--text3)">{{ t('notif.total', n=notifications.total) }}</span>
             {% endif %}

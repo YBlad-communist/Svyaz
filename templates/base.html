@@ -2,13 +2,13 @@
 <html lang="{{ lang }}" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <meta name="google" content="notranslate">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}DevConnect{% endblock %}</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" nonce="{{ csp_nonce() }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" nonce="{{ csp_nonce() }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" nonce="{{ csp_nonce() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ range(1000, 9999)|random }}" nonce="{{ csp_nonce() }}">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -58,6 +58,18 @@
     </div>
     {% endif %}
 
+    <!-- Language toggle lives at navbar root so it stays visible on mobile
+         (the whole .navbar-actions block is hidden below 768px). -->
+    <a class="lang-toggle" href="{{ url_for('set_language', code='ru') if lang == 'en' else url_for('set_language', code='en') }}"
+       title="{{ 'Русский' if lang == 'en' else 'English' }}"
+       style="display:inline-flex;align-items:center;justify-content:center;padding:0.45rem;border-radius:8px;opacity:.9;margin-left:0.25rem;min-width:44px;min-height:44px">
+        {% if lang == 'en' %}
+        <svg viewBox="0 0 60 36" width="26" height="16" aria-hidden="true" style="border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.25)"><rect width="60" height="36" fill="#012169"/><path d="M0,0 L60,36 M60,0 L0,36" stroke="#fff" stroke-width="7"/><path d="M0,0 L60,36 M60,0 L0,36" stroke="#C8102E" stroke-width="3"/><path d="M0,18 L60,18 M30,0 L30,36" stroke="#fff" stroke-width="11"/><path d="M0,18 L60,18 M30,0 L30,36" stroke="#C8102E" stroke-width="6"/></svg>
+        {% else %}
+        <svg viewBox="0 0 60 36" width="26" height="16" aria-hidden="true" style="border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.25)"><rect width="60" height="12" fill="#fff"/><rect y="12" width="60" height="12" fill="#0039A6"/><rect y="24" width="60" height="12" fill="#D52B1E"/></svg>
+        {% endif %}
+    </a>
+
     <div class="navbar-actions">
         {% if current_user.is_authenticated %}
         <a href="{{ url_for('feed') }}" class="nav-btn {% if request.endpoint == 'feed' %}text-primary{% endif %}" title="{{ t('nav.feed') }}">
@@ -97,15 +109,6 @@
         <a href="{{ url_for('login') }}" class="btn btn-ghost btn-sm">{{ t('nav.sign_in') }}</a>
         <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">{{ t('nav.sign_up') }}</a>
         {% endif %}
-        <a class="lang-toggle" href="{{ url_for('set_language', code='ru') if lang == 'en' else url_for('set_language', code='en') }}"
-           title="{{ 'Русский' if lang == 'en' else 'English' }}"
-           style="display:inline-flex;align-items:center;padding:0.35rem 0.4rem;border-radius:8px;opacity:.9;margin-left:0.25rem">
-            {% if lang == 'en' %}
-            <svg viewBox="0 0 60 36" width="26" height="16" aria-hidden="true" style="border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.25)"><rect width="60" height="36" fill="#012169"/><path d="M0,0 L60,36 M60,0 L0,36" stroke="#fff" stroke-width="7"/><path d="M0,0 L60,36 M60,0 L0,36" stroke="#C8102E" stroke-width="3"/><path d="M0,18 L60,18 M30,0 L30,36" stroke="#fff" stroke-width="11"/><path d="M0,18 L60,18 M30,0 L30,36" stroke="#C8102E" stroke-width="6"/></svg>
-            {% else %}
-            <svg viewBox="0 0 60 36" width="26" height="16" aria-hidden="true" style="border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.25)"><rect width="60" height="12" fill="#fff"/><rect y="12" width="60" height="12" fill="#0039A6"/><rect y="24" width="60" height="12" fill="#D52B1E"/></svg>
-            {% endif %}
-        </a>
     </div>
 </nav>
 

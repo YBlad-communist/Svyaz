@@ -10,7 +10,7 @@
 
     <div class="card">
         <div style="padding:1.5rem">
-            <div style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem">
+            <div class="idea-header-flex" style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem">
                 <div style="display:flex;flex-direction:column;align-items:center;gap:0.25rem;min-width:60px">
                     <button class="idea-like-btn {% if idea.liked_by_user %}liked{% endif %}"
                             onclick="likeIdea({{ idea.id }}, this)" style="background:none;border:none;cursor:pointer;font-size:1.8rem;color:var(--text3);padding:0.25rem">
@@ -44,7 +44,7 @@
                     </div>
                 </div>
                 {% if current_user.id == idea.author_id %}
-                <div style="flex-shrink:0;display:flex;gap:0.5rem">
+                <div class="idea-actions" style="flex-shrink:0;display:flex;gap:0.5rem">
                     <a href="{{ url_for('idea_edit', idea_id=idea.id) }}" class="btn btn-secondary btn-sm">
                         <i class="fas fa-edit"></i>
                     </a>
@@ -157,13 +157,13 @@
                     <i class="fas fa-user-clock" style="color:var(--warning)"></i> {{ t('idea.join_requests_count', count=pending_requests|length) }}
                 </h4>
                 {% for req in pending_requests %}
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.8rem;background:var(--bg2);border-radius:var(--radius-xs);margin-bottom:0.5rem">
-                    <div style="display:flex;align-items:center;gap:0.6rem">
+                <div class="request-row" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.8rem;background:var(--bg2);border-radius:var(--radius-xs);margin-bottom:0.5rem">
+                    <div class="request-info" style="display:flex;align-items:center;gap:0.6rem">
                         <img src="{{ req.user.avatar }}" style="width:28px;height:28px;border-radius:50%">
                         <a href="{{ url_for('profile', username=req.user.username) }}" style="font-weight:600;color:var(--text);text-decoration:none;font-size:0.9rem">{{ req.user.username }}</a>
                         <span style="font-size:0.75rem;color:var(--text3)">{{ req.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
                     </div>
-                    <div style="display:flex;gap:0.4rem">
+                    <div class="request-actions" style="display:flex;gap:0.4rem">
                         <form method="POST" action="{{ url_for('idea_approve_join', idea_id=idea.id, user_id=req.user.id) }}" style="display:inline">
                             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3)">
@@ -208,7 +208,7 @@
                 </h4>
                 {% set req_colors = {'pending':'#f59e0b','approved':'#10b981','rejected':'#ef4444'} %}
                 {% for req in all_requests %}
-                <div style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0.6rem;font-size:0.85rem;color:var(--text2)">
+                <div class="all-requests-row" style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0.6rem;font-size:0.85rem;color:var(--text2)">
                     <img src="{{ req.user.avatar }}" style="width:22px;height:22px;border-radius:50%">
                     <a href="{{ url_for('profile', username=req.user.username) }}" style="color:var(--text);text-decoration:none;font-weight:600">{{ req.user.username }}</a>
                     <span style="font-size:0.75rem;color:{{ req_colors.get(req.status, '#9ca3af') }};font-weight:600;text-transform:uppercase">{{ req.status }}</span>

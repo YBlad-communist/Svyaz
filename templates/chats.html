@@ -17,7 +17,9 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         max-width: 100% !important;
     }
     .chat-layout {
-        height: calc(100dvh - var(--nav-h) - 74px) !important;
+        /* --app-height is set by visualViewport JS: real visible height,
+           shrinks when the on-screen keyboard opens (iOS + Android). */
+        height: calc(var(--app-height, 100dvh) - var(--nav-h, 50px) - 74px) !important;
         border-radius: 0 !important;
         border: none !important;
         background: #0f172a;
@@ -55,8 +57,8 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         letter-spacing: 0.01em;
     }
     .chat-sidebar-header .btn {
-        width: 38px !important;
-        height: 38px !important;
+        width: 40px !important;
+        height: 40px !important;
         border-radius: 50% !important;
         padding: 0 !important;
     }
@@ -94,8 +96,8 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         opacity: 0.9;
     }
     #backBtn {
-        width: 36px !important;
-        height: 36px !important;
+        width: 40px !important;
+        height: 40px !important;
         display: flex !important;  /* всегда показывать на мобиле в чате */
     }
     /* Скрываем backBtn когда мы на экране списка */
@@ -166,8 +168,8 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
         color: rgba(219,230,255,0.57) !important;
     }
     .chat-send-btn, .chat-input-row .btn.btn-ghost.btn-icon {
-        width: 36px !important;
-        height: 36px !important;
+        width: 40px !important;
+        height: 40px !important;
         border-radius: 50% !important;
         padding: 0 !important;
     }
@@ -206,6 +208,49 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
     #chatInfoBtn {
         display: none !important;
     }
+}
+
+/* Group info panel */
+.group-info-panel {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 300px; max-width: 100%;
+    background: var(--surface2); border-left: 1px solid var(--border);
+    z-index: 10; display: flex; flex-direction: column;
+    animation: slideInRight 0.2s var(--ease-out);
+    box-shadow: -4px 0 20px rgba(0,0,0,0.3);
+}
+@keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+.group-info-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
+}
+.group-info-body {
+    flex: 1; overflow-y: auto; padding: 0.75rem;
+}
+.group-member-item {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.55rem 0.5rem; border-radius: var(--radius-xs);
+    transition: background var(--transition-fast);
+}
+.group-member-item:hover { background: rgba(0,212,255,0.05); }
+.group-member-item .avatar { width: 34px; height: 34px; }
+.group-member-name { font-weight: 600; font-size: 0.88rem; color: var(--text); }
+.group-member-role { font-size: 0.72rem; color: var(--text3); }
+.group-member-admin { color: var(--warning); }
+
+/* Typing animation */
+@keyframes typingDot {
+    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
+}
+
+/* Mobile: show info btn for group chats */
+@media (max-width: 768px) {
+    .chat-layout.mobile-show-chat #chatInfoBtn { display: flex !important; }
+    .group-info-panel { width: 100%; }
 }
 </style>
 {% endblock %}
@@ -254,7 +299,7 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
                 <i class="fas fa-arrow-left"></i>
             </button>
             <img src="" class="avatar avatar-md" id="chatAvatar" alt="">
-            <div class="chat-header-info">
+            <div class="chat-header-info" onclick="if(chatIsGroup)toggleChatInfo()" style="cursor:pointer">
                 <div class="chat-header-name" id="chatName"></div>
                 <div class="chat-header-status" id="chatStatus">...</div>
             </div>
@@ -268,8 +313,27 @@ main { padding-top: 1rem !important; padding-bottom: 0 !important; }
             </div>
         </div>
 
+        <!-- Group info slide-in panel -->
+        <div class="group-info-panel" id="groupInfoPanel" style="display:none">
+            <div class="group-info-header">
+                <button class="btn btn-ghost btn-icon" onclick="toggleChatInfo()" style="margin-right:0.5rem">
+                    <i class="fas fa-times"></i>
+                </button>
+                <h3 style="font-weight:700;font-size:1rem;flex:1" id="groupInfoTitle"></h3>
+            </div>
+            <div class="group-info-body" id="groupInfoBody"></div>
+        </div>
+
         <!-- Messages container -->
         <div class="chat-messages" id="chatMessages" style="display:none"></div>
+
+        <!-- Typing indicator -->
+        <div id="typingIndicator" style="display:none;padding:0 1rem 0.3rem;font-size:0.78rem;color:var(--text3)">
+            <i class="fas fa-circle" style="font-size:0.4rem;vertical-align:middle;animation:typingDot 1.2s infinite"></i>
+            <i class="fas fa-circle" style="font-size:0.4rem;vertical-align:middle;animation:typingDot 1.2s 0.2s infinite"></i>
+            <i class="fas fa-circle" style="font-size:0.4rem;vertical-align:middle;animation:typingDot 1.2s 0.4s infinite"></i>
+            <span id="typingText"></span>
+        </div>
 
         <!-- Reply preview -->
         <div id="replyPreview" style="display:none;padding:0 1rem">
@@ -370,7 +434,9 @@ function renderAvatar(src, size) {
 // Load chat list
 async function loadChats(filter = '') {
     const res = await fetch('/api/chats');
+    if (!res.ok) return; // throttled/error: keep the current list intact
     const chats = await res.json();
+    if (!Array.isArray(chats)) return;
     const list = document.getElementById('chatList');
     const filtered = filter ? chats.filter(c => c.username.toLowerCase().includes(filter.toLowerCase())) : chats;
 
@@ -452,6 +518,7 @@ async function openChat(chatId) {
     currentChatId = chatId;
     lastMsgTimestamp = 0;
     isUserScrolledUp = false;
+    document.getElementById('groupInfoPanel').style.display = 'none';
 
     // Update active item in sidebar
     document.querySelectorAll('.chat-item').forEach(i => i.classList.remove('active'));
@@ -472,7 +539,13 @@ async function openChat(chatId) {
     const avatarImg = chatItem?.querySelector('.avatar')?.src || '';
     document.getElementById('chatAvatar').src = avatarImg;
     document.getElementById('chatName').textContent = info.name || chatItem?.querySelector('.chat-item-name')?.textContent || '';
-    document.getElementById('chatStatus').textContent = info.is_group ? I18N['chats.group'] : I18N['chats.offline'];
+    if (info.is_group) {
+        document.getElementById('chatStatus').textContent = I18N['chats.group'] + (info.member_count ? ' · ' + info.member_count : '');
+        document.getElementById('chatInfoBtn').style.display = '';
+    } else {
+        document.getElementById('chatStatus').textContent = I18N['chats.offline'];
+        document.getElementById('chatInfoBtn').style.display = 'none';
+    }
 
     // For mobile: hide sidebar
     if (window.innerWidth <= 768) {
@@ -515,7 +588,9 @@ async function loadMessages() {
 async function pollMessages() {
     if (!currentChatId) return;
     const res = await fetch(`/api/chat/${currentChatId}/messages?after=${lastMsgTimestamp}`);
+    if (!res.ok) return; // throttled/error: keep current messages, retry next tick
     const msgs = await res.json();
+    if (!Array.isArray(msgs)) return;
     if (msgs.length) {
         lastMsgTimestamp = msgs[msgs.length - 1].created_at_full;
         const container = document.getElementById('chatMessages');
@@ -779,6 +854,7 @@ async function addReaction(msgId, reaction) {
 async function checkOnline(userId) {
     if (!userId) return;
     const res = await fetch(`/api/user/${userId}/online`);
+    if (!res.ok) return; // throttled/error: keep current status text
     const data = await res.json();
     const statusEl = document.getElementById('chatStatus');
     if (statusEl) statusEl.innerHTML = data.online ? '<span class="chat-header-online"><i class="fas fa-circle" style="font-size:0.6rem"></i> ' + I18N['chats.online'] + '</span>' : I18N['chats.offline'];
@@ -786,10 +862,28 @@ async function checkOnline(userId) {
 
 // Group info
 async function toggleChatInfo() {
-    if (!chatIsGroup) return;
+    const panel = document.getElementById('groupInfoPanel');
+    if (panel.style.display === 'flex') {
+        panel.style.display = 'none';
+        return;
+    }
+    if (!chatIsGroup || !currentChatId) return;
     const res = await fetch(`/api/group/${currentChatId}/members`);
     const data = await res.json();
-    alert(I18N['chats.group_members'] + '\n' + data.members.map(m => `${m.username}${m.is_admin ? ' (' + I18N['chats.admin_suffix'] + ')' : ''}`).join('\n'));
+    document.getElementById('groupInfoTitle').textContent = document.getElementById('chatName').textContent;
+    const body = document.getElementById('groupInfoBody');
+    let html = `<div style="font-size:0.78rem;color:var(--text3);text-transform:uppercase;font-weight:700;margin-bottom:0.6rem;letter-spacing:0.5px">${I18N['chats.group_members'] || 'Members'} (${data.members.length})</div>`;
+    data.members.forEach(m => {
+        html += `<div class="group-member-item">
+            <img src="${escHtml(m.avatar || '')}" class="avatar" style="width:34px;height:34px;border-radius:50%">
+            <div>
+                <div class="group-member-name">${escHtml(m.username)}${m.is_admin ? ' <span class="group-member-admin"><i class="fas fa-shield-halved"></i></span>' : ''}</div>
+                ${m.role && m.role !== 'member' ? `<div class="group-member-role">${escHtml(m.role)}</div>` : ''}
+            </div>
+        </div>`;
+    });
+    body.innerHTML = html;
+    panel.style.display = 'flex';
 }
 
 async function deleteCurrentChat() {
@@ -887,5 +981,21 @@ document.addEventListener('visibilitychange', () => {
         loadMessages(); // refresh on return
     }
 });
+
+// Viewport height sync (keyboard-aware).
+// visualViewport.height = real visible height; on iOS the keyboard OVERLAYS
+// the page and dvh/vh never change — only this API reports the true size.
+(function () {
+    function setAppHeight() {
+        var vv = window.visualViewport;
+        var h = vv ? Math.round(vv.height) : window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', h + 'px');
+    }
+    setAppHeight();
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', setAppHeight);
+    }
+    window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 120));
+})();
 </script>
 {% endblock %}

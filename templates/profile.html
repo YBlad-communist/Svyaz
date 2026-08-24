@@ -224,9 +224,11 @@ async function followUser(username) {
     });
 }
 async function startChat(username) {
+    const CSRF = document.querySelector('input[name="_csrf_token"]')?.value || '{{ csrf_token() }}';
     var res = await fetch('/api/chat/create', { method:'POST', headers:{'X-CSRFToken':CSRF,'Content-Type':'application/x-www-form-urlencoded'}, body:'username='+encodeURIComponent(username)+'&_csrf_token='+CSRF });
     var data = await res.json();
     if (data.chat_id) window.location.href='/chats?chat='+data.chat_id;
+    else console.error('startChat failed:', data);
 }
 async function likePost(postId, btn) {
     var res = await api('/post/'+postId+'/like');

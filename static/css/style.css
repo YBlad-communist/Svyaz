@@ -424,21 +424,25 @@ main {
 /* ===== Mobile Bottom Nav ===== */
 .bottom-nav {
     position: fixed; bottom: 0; left: 0; right: 0;
-    height: 60px;
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     background: var(--glass);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border-top: 1px solid var(--glass-border);
     display: none;
     z-index: 999;
-    padding: 0 0.5rem;
+    padding-left: 4px;
+    padding-right: 4px;
 }
-.bottom-nav-items { display: flex; height: 100%; align-items: center; justify-content: space-around; }
+.bottom-nav-items { display: flex; height: 100%; align-items: stretch; justify-content: space-around; }
 
 .bottom-nav-item {
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    flex: 1 1 0; min-width: 0; max-width: 72px;
+    gap: 3px;
     color: var(--text3); text-decoration: none; font-size: 0.62rem; font-weight: 500;
-    padding: 0.35rem 0.6rem;
+    padding: 0.35rem 0.25rem;
     border-radius: var(--radius-xs);
     transition: all var(--transition-fast);
     position: relative;
@@ -734,7 +738,7 @@ textarea.form-control { min-height: 75px; }
     box-shadow: 0 0 8px var(--primary-glow);
 }
 
-.chat-main { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.chat-main { display: flex; flex-direction: column; height: 100%; overflow: hidden; position: relative; }
 .chat-header {
     padding: 0.85rem 1.15rem; border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 0.7rem;
@@ -1029,6 +1033,33 @@ textarea.form-control { min-height: 75px; }
 /* ===== Verified ===== */
 .verified-check { color: var(--primary); font-size: 0.85em; }
 
+/* ===== Active tab indicator (bottom-nav) ===== */
+.bottom-nav-item.active {
+    color: var(--primary);
+    background: rgba(0,212,255,0.12);
+    border-radius: var(--radius-xs);
+}
+.bottom-nav-item.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 50%;
+    transform: translateX(-50%);
+    width: 20px; height: 3px;
+    border-radius: 2px;
+    background: var(--primary);
+    box-shadow: 0 0 8px var(--primary-glow);
+}
+.bottom-nav-item.active i {
+    transform: scale(1.15);
+    filter: drop-shadow(0 0 6px var(--primary-glow));
+}
+
+/* ===== Touch target minimums ===== */
+.btn-sm { min-height: 36px; padding: 0.4rem 0.85rem; }
+.btn-icon { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+.file-card-btn { width: 38px; height: 38px; min-width: 38px; min-height: 38px; }
+.post-action-btn { min-height: 36px; padding: 0.4rem 0.9rem; }
+
 /* ===== Idea Like ===== */
 .idea-like-btn {
     transition: all var(--transition-fast);
@@ -1055,17 +1086,21 @@ textarea.form-control { min-height: 75px; }
 }
 
 @media (max-width: 768px) {
+    :root { --nav-h: 50px; }
     .bottom-nav { display: flex; }
-    main { padding-bottom: 72px; }
+    main { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
     body { padding-top: 50px; }
-    --nav-h: 50px;
     .navbar { justify-content: center; padding: 0 0.8rem; }
     .navbar-search, .navbar-actions { display: none !important; }
     .navbar-brand { margin: 0 auto; font-size: 1.8rem; }
+
+    /* Chat responsive: --app-height is keyboard-aware (set by JS in chats.html) */
     .chat-layout { grid-template-columns: 1fr; height: auto; }
-    .chat-sidebar { display: none; height: calc(100vh - 120px); }
+    .chat-sidebar { display: none; height: calc(var(--app-height, 100dvh) - 120px); }
     .chat-sidebar.visible { display: flex; }
-    .chat-main { height: calc(100vh - 170px); }
+    .chat-main { height: calc(var(--app-height, 100dvh) - 120px); }
+
+    /* Profile responsive */
     .profile-hero { min-height: 120px; }
     .profile-hero-content { min-height: 120px; padding: 0.9rem; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .profile-hero .avatar-xl { width: 78px; height: 78px; }
@@ -1075,11 +1110,44 @@ textarea.form-control { min-height: 75px; }
     .profile-stat-num { font-size: 0.95rem; }
     .profile-stat-label { font-size: 0.68rem; }
     .profile-hero-content > .btn, .profile-hero-content > a.btn { width: 100%; justify-content: center; }
+
+    /* Idea detail: wrap header */
+    .idea-header-flex { flex-wrap: wrap; }
+    .idea-header-flex .idea-actions { width: 100%; justify-content: flex-end; margin-top: 0.5rem; }
+
+    /* Ideas card meta: wrap */
+    .idea-card-meta { flex-wrap: wrap; gap: 0.3rem; }
+    .idea-card-meta .idea-meta-left { min-width: 0; }
+    .idea-card-meta .idea-card-actions { width: 100%; margin-top: 0.3rem; }
+
+    /* Channel page header: wrap */
+    .channel-header-flex { flex-wrap: wrap; }
+    .channel-header-flex .channel-header-actions { width: 100%; margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+    .channel-stats-row { flex-wrap: wrap; }
+
+    /* Channel members: wrap admin controls */
+    .member-row { flex-wrap: wrap; }
+    .member-row .member-controls { width: 100%; margin-top: 0.4rem; display: flex; gap: 0.4rem; align-items: center; }
+
+    /* Idea detail requests: wrap */
+    .request-row { flex-wrap: wrap; gap: 0.5rem; }
+    .request-row .request-info { min-width: 0; }
+    .request-row .request-actions { width: 100%; display: flex; gap: 0.4rem; }
+    .all-requests-row { flex-wrap: wrap; }
+
+    /* Notifications header */
+    .notif-header-right { flex-wrap: wrap; }
 }
 
 @media (max-width: 480px) {
     .auth-card { padding: 1.5rem; }
     .landing-cta { flex-direction: column; align-items: center; }
+    /* Bottom nav with 7 items on narrow screens: icons only, vertically centered */
+    .bottom-nav-item span:not(.badge) { display: none; }
+    .bottom-nav-item { gap: 0; }
+    .bottom-nav-item i { font-size: 1.2rem; }
+    .lang-toggle { margin-right: 0.4rem; }
+    html, body { overflow-x: hidden; }
 }
 
 /* ===== Mobile chat back ===== */
