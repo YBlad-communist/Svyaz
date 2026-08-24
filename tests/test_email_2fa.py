@@ -199,3 +199,43 @@ class TestEmailConfirmationOnRegistration:
         user = User.query.filter_by(username='drifter').first()
         assert user.verified is True
         assert client.get('/feed').status_code == 200
+
+
+class TestCodeResendInvalidatesPrevious:
+    """Regression: when a user resends their login code, the old code
+    MUST be invalid and only the newest one accepted."""
+
+    def test_old_code_rejected_after_resend(self, client, emma, monkeypatch):
+        import app as app_mod
+        monkeypatch.setattr(app_mod, 'EMAIL_CODE_RESEND_COOLDOWN', 0)
+
+        # Step 1: login (password only) → code A sent, stay on gate page
+        client.get('/login')
+        setup_csrf(client)
+        client.post('/login', data={
+            'username': 'emma', 'password': 'emmapass123', '_csrf_token': CSRF_TOKEN,
+        }, follow_redirects=True)
+        code_a = last_login_code()
+
+        # Step 2: resend → code B generated and emailed
+        setup_csrf(client)
+        client.post('/login/email-code/resend',
+                     data={'_csrf_token': CSRF_TOKEN}, follow_redirects=True)
+        code_b = last_login_code()
+        assert code_a != code_b, "Resend should produce a new code"
+
+        # Step 3: old code A must be rejected
+        setup_csrf(client)
+        rv = client.post('/login/email-code',
+                         data={'code': code_a, '_csrf_token': CSRF_TOKEN},
+                         follow_redirects=True)
+        assert b'Invalid code' in rv.data or b'invalid' in rv.data.lower(), \
+            "Old code A should have been rejected"
+
+        # Step 4: new code B must work
+        setup_csrf(client)
+        rv = client.post('/login/email-code',
+                         data={'code': code_b, '_csrf_token': CSRF_TOKEN},
+                         follow_redirects=True)
+        assert rv.status_code == 200
+        assert b'Invalid code' not in rv.data

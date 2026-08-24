@@ -325,7 +325,15 @@ def _generate_and_send_email_code(user):
     """Create a one-time 6-digit code for `user` and email it.
     Previous unused codes are invalidated. Returns True on success."""
     code = f"{secrets.randbelow(1000000):06d}"
-    EmailLoginCode.query.filter_by(user_id=user.id, is_used=False).update({'is_used': True})
+    # Invalidation must happen reliably before the new row is added.
+    # Query.update() on SQLite can behave oddly when mixed with a
+    # pending session.add() on the same table, so we use a raw
+    # execute() which issues an immediate, unconditional UPDATE.
+    from sqlalchemy import text
+    db.session.execute(
+        text("UPDATE email_login_codes SET is_used = 1 WHERE user_id = :uid AND is_used = 0"),
+        {"uid": user.id},
+    )
     db.session.add(EmailLoginCode(
         user_id=user.id,
         code_hash=generate_password_hash(code, method='pbkdf2:sha256', salt_length=16),
@@ -400,7 +408,7 @@ is_testing = os.environ.get('FLASK_ENV') == 'testing'
 limiter = Limiter(
     app=app,
     key_func=get_real_ip,
-    default_limits=[] if is_testing else ["200 per day", "50 per hour"],
+    default_limits=[] if is_testing else ["3000 per hour"],
     storage_uri=_redis_url(0) if (redis_available and not is_testing) else "memory://",
     enabled=not is_testing)
 
@@ -2402,6 +2410,7 @@ def add_group_members(chat_id):
 # Chat API
 # ------------------------------
 @app.route('/api/chats')
+@limiter.limit("240 per minute")
 @login_required
 def get_chats():
     user_chats = current_user.chats.order_by(Chat.updated_at.desc()).all()
@@ -2434,6 +2443,7 @@ def get_chats():
     return jsonify(result)
 
 @app.route('/api/chat/<int:chat_id>/messages')
+@limiter.limit("240 per minute")
 @login_required
 def get_messages(chat_id):
     chat = db.session.get(Chat, chat_id)
@@ -2711,6 +2721,7 @@ def add_reaction(message_id):
     return jsonify({'success': True, 'reactions': reaction_counts})
 
 @app.route('/api/user/<int:user_id>/online')
+@limiter.limit("120 per minute")
 @login_required
 def user_online(user_id):
     user = User.query.get_or_404(user_id)
@@ -2737,7 +2748,8 @@ def chat_info(chat_id):
         return jsonify({'error': 'Access denied'}), 403
     return jsonify({
         'is_group': chat.is_group, 'is_admin': chat.is_admin(current_user) if chat.is_group else False,
-        'name': chat.name, 'avatar': chat.avatar, 'description': chat.description
+        'name': chat.name, 'avatar': chat.avatar, 'description': chat.description,
+        'member_count': chat.participants.count() if chat.is_group else 0,
     })
 
 @app.route('/api/github/<username>')
